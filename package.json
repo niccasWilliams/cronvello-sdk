@@ -1,0 +1,108 @@
+{
+  "name": "@cronvello/sdk",
+  "version": "0.2.1",
+  "description": "Code-first cron jobs for Cronvello. Define jobs in your code, the SDK syncs them to https://api.cronvello.com and runs them — no dashboard required.",
+  "keywords": [
+    "cron",
+    "cronvello",
+    "scheduler",
+    "jobs",
+    "tasks",
+    "scheduled-jobs",
+    "code-first",
+    "express",
+    "nextjs"
+  ],
+  "license": "MIT",
+  "author": "Cronvello",
+  "homepage": "https://cronvello.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/niccasWilliams/cronvello-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/niccasWilliams/cronvello-sdk/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "cronvello": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./express": {
+      "import": {
+        "types": "./dist/express.d.ts",
+        "default": "./dist/express.js"
+      },
+      "require": {
+        "types": "./dist/express.d.cts",
+        "default": "./dist/express.cjs"
+      }
+    },
+    "./next": {
+      "import": {
+        "types": "./dist/next.d.ts",
+        "default": "./dist/next.js"
+      },
+      "require": {
+        "types": "./dist/next.d.cts",
+        "default": "./dist/next.cjs"
+      }
+    },
+    "./dev": {
+      "import": {
+        "types": "./dist/dev.d.ts",
+        "default": "./dist/dev.js"
+      },
+      "require": {
+        "types": "./dist/dev.d.cts",
+        "default": "./dist/dev.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "CRONVELLO_E2E=1 vitest run test/e2e",
+    "coverage": "vitest run --coverage",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "tsup": "^8.3.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.9"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

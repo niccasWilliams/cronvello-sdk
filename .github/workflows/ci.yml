@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ["20", "22"]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm install --no-package-lock --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test with coverage
+        run: npm run coverage
+
+      - name: Build ESM, CJS, and declarations
+        run: npm run build
+
+      - name: Smoke-test the CLI binary
+        run: |
+          ln -sf "$PWD/dist/cli.js" /tmp/cronvello
+          test "$(node /tmp/cronvello --version)" = "$(node -p "require('./package.json').version")"
+          node /tmp/cronvello --help > /dev/null
+          test -n "$(node /tmp/cronvello secret)"

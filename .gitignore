@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# This package installs with `npm install --no-package-lock` (zero-runtime-dep, dev-only deps);
+# no lockfile is committed.
+package-lock.json
