@@ -79,6 +79,32 @@ describe("dashboard — read API", () => {
     const { status } = await getJson(base, "/api/preview/ghost");
     expect(status).toBe(404);
   });
+
+  it("GET /api/state answers with everything the page draws, in one response", async () => {
+    const base = await boot([nightly(), nightly({ key: "hourly", schedule: "0 * * * *" })]);
+    await engine!.trigger("nightly");
+    const { status, body } = await getJson(base, "/api/state?upcoming=3");
+    expect(status).toBe(200);
+
+    expect(body.engine).toMatchObject({ running: true, activeRuns: 0 });
+    expect(typeof body.engine.startedAt).toBe("number");
+
+    expect(body.jobs).toHaveLength(2);
+    expect(body.jobs[0]).toMatchObject({ key: "nightly", schedule: "0 0 * * *", timeZone: "UTC" });
+    expect(body.jobs[0].upcoming).toHaveLength(3);
+    // The last run is folded in, so the table needs no second request to show a status.
+    expect(body.jobs[0].lastRun).toMatchObject({ key: "nightly", status: "success" });
+    expect(body.jobs[1].lastRun).toBeNull();
+
+    expect(body.runs).toHaveLength(1);
+  });
+
+  it("GET /api/state reports an unschedulable expression as simply having no upcoming fires", async () => {
+    const base = await boot([nightly({ key: "at-boot", schedule: "@reboot" })]);
+    const { status, body } = await getJson(base, "/api/state");
+    expect(status).toBe(200);
+    expect(body.jobs[0].upcoming).toEqual([]);
+  });
 });
 
 describe("dashboard — trigger & history", () => {

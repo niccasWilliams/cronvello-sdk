@@ -105,7 +105,42 @@ function handleRequest(
 
   // Health.
   if (method === "GET" && path === "/api/health") {
-    return sendJson(res, 200, { ok: true, jobs: engine.jobs().length, activeRuns: engine.activeRuns });
+    return sendJson(res, 200, {
+      ok: true,
+      jobs: engine.jobs().length,
+      activeRuns: engine.activeRuns,
+      running: engine.running,
+      startedAt: engine.startedAt,
+    });
+  }
+
+  // Everything the UI needs for a full repaint, in one round-trip. The dashboard polls this as a
+  // reconciliation net behind the live event stream, so a second request per refresh would double
+  // the cost of the thing that runs most often.
+  if (method === "GET" && path === "/api/state") {
+    const runs = engine.runs();
+    const lastByKey = new Map<string, ReturnType<typeof engine.runs>[number]>();
+    for (const run of runs) if (!lastByKey.has(run.key)) lastByKey.set(run.key, run);
+    const upcomingCount = clampCount(url.searchParams.get("upcoming"));
+    return sendJson(res, 200, {
+      engine: {
+        running: engine.running,
+        startedAt: engine.startedAt,
+        activeRuns: engine.activeRuns,
+        now: Date.now(),
+      },
+      jobs: engine.snapshot().map((j) => ({
+        key: j.key,
+        schedule: j.schedule,
+        timeZone: j.timeZone,
+        description: j.description ?? null,
+        nextFire: j.nextFire ? j.nextFire.toISOString() : null,
+        running: j.running,
+        lastRun: lastByKey.get(j.key) ?? null,
+        upcoming: upcoming(j.schedule, j.timeZone, upcomingCount),
+      })),
+      runs,
+    });
   }
 
   // Run history as NDJSON (check before the `/api/runs` prefix).
@@ -216,6 +251,19 @@ function sendHtml(res: http.ServerResponse, html: string): void {
 
 function decodeKey(path: string, prefix: string): string {
   return decodeURIComponent(path.slice(prefix.length));
+}
+
+/**
+ * The next `count` fire times of a schedule, as ISO strings. An expression the previewer can't
+ * resolve (`@reboot`, or a typo that slipped past define-time validation) simply has no upcoming
+ * fires — that is a display fact, not an error worth failing the whole state request over.
+ */
+function upcoming(schedule: string, timeZone: string, count: number): string[] {
+  try {
+    return previewSchedule(schedule, { timeZone, count }).map((d) => d.toISOString());
+  } catch {
+    return [];
+  }
 }
 
 function clampCount(raw: string | null): number {

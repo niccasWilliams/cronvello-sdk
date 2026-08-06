@@ -98,6 +98,7 @@
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@vitest/coverage-v8": "^2.1.9",
+    "happy-dom": "^20.11.1",
     "tsup": "^8.3.0",
     "typescript": "^5.5.0",
     "vitest": "^2.1.9"

@@ -25,6 +25,27 @@ constraint, and it landed on exactly the people the local mode is meant to attra
 ### Added
 
 - **`app.isCloudConfigured`** — true when `apiKey`, `appUrl` and `dispatchSecret` are all present.
+- **A rebuilt local dashboard.** The old page answered "what are my jobs" but not "is this healthy",
+  so you had to read a log to find out. It now opens on a summary (jobs, runs, succeeded, failed,
+  next fire) and a **timeline**: one lane per job, past runs plotted against upcoming fires around a
+  moving now-line. A schedule that is wrong shows up there immediately.
+  - Run detail now includes the **error message** or the **returned value**, which is the thing you
+    opened the panel for.
+  - The feed can be paused, and says how many events it is holding back.
+  - Rows are keyboard-reachable, Escape closes the drawer and returns focus.
+  - The page is driven by one `/api/state` snapshot instead of a fetch per event, and the timeline
+    advances by translating a fixed track rather than repositioning every mark each second.
+- **`GET /api/state`** on the dashboard server: jobs (with last run and upcoming fires), run history
+  and engine state in one response.
+- **`engine.startedAt`** and **`engine.running`** on `LocalEngine`.
+
+### Fixed
+
+- The dashboard's job table stayed on "Loading" forever when the registry was empty, because
+  "no jobs" and "not loaded yet" looked identical to it.
+- A `scheduled` event carries the *next fire time* as its timestamp, which the feed printed in its
+  clock column and so appeared to jump forward in time. It now reads "scheduled for HH:MM:SS" and
+  the clock column is strictly arrival time.
 
 ### Security
 

@@ -321,4 +321,20 @@ describe("LocalEngine — toNdjson()", () => {
     const { engine } = harness([daily()], async () => "ok");
     expect(engine.toNdjson()).toBe("");
   });
+
+  it("exposes when it started and whether it is running", async () => {
+    const clock = new FakeClock(1_000);
+    const engine = createLocalEngine([{ key: "j", schedule: "* * * * *", timeZone: "UTC" }], async () => "ok", { clock });
+    expect(engine.startedAt).toBeNull();
+    expect(engine.running).toBe(false);
+
+    engine.start();
+    expect(engine.startedAt).toBe(1_000);
+    expect(engine.running).toBe(true);
+
+    await engine.stop();
+    expect(engine.running).toBe(false);
+    // The start time survives the stop, so a dashboard can still report the session length.
+    expect(engine.startedAt).toBe(1_000);
+  });
 });

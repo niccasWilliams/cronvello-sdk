@@ -329,15 +329,22 @@ npx cronvello dev --dashboard            # → http://127.0.0.1:4747  (override 
 
 Open the printed URL and you get, live:
 
+- a **summary** across the session: jobs, runs, how many succeeded, how many failed, and what fires
+  next,
+- a **timeline** with one lane per job, plotting the runs that already happened next to the fires
+  still to come, around a now-line that moves as you watch. A schedule that is wrong is usually
+  obvious here before it is obvious anywhere else,
 - every **job** with its cron expression, timezone, and a **countdown to the next fire**,
-- a **run feed** that streams each fire, success, error, timeout, retry, and skip as it happens,
-- a **job drawer** with recent runs and the next fire times, plus a **Run now** button that triggers
-  the handler through the engine and shows the result instantly,
-- light + dark, and an honest **disconnected** state if the engine stops.
+- a **run feed** that streams each fire, success, error, timeout, retry, and skip as it happens, with
+  a pause that tells you how much you're missing,
+- a **job drawer** with the next fire times and recent runs, each one carrying its **error message**
+  or its **returned value**, plus a **Run now** button that triggers the handler through the engine,
+- light + dark, keyboard-reachable rows, and an honest **reconnecting** state if the engine stops.
 
 It binds to `127.0.0.1` by default (it's a dev tool, not a public server) and exposes a tiny
-read-only JSON API plus an SSE stream — including `GET /api/runs.ndjson` to pipe the run history out
-as NDJSON. You can also start it programmatically:
+read-only JSON API plus an SSE stream — `GET /api/state` for everything the page draws, and
+`GET /api/runs.ndjson` to pipe the run history out as NDJSON. You can also start it
+programmatically:
 
 ```ts
 const engine = cronvello.dev({ dashboard: true });   // or { dashboard: { port: 5000 } }

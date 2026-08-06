@@ -155,6 +155,7 @@ export class LocalEngine {
   private started = false;
   private stopped = false;
   private signalCleanup: (() => void) | null = null;
+  private startedAtMs: number | null = null;
 
   constructor(jobs: EngineJob[], runner: EngineRunner, options: LocalEngineOptions = {}) {
     this.clock = options.clock ?? realClock;
@@ -210,7 +211,8 @@ export class LocalEngine {
     if (this.started) return this;
     this.started = true;
     this.stopped = false;
-    this.emit({ type: "engine-start", jobs: this.states.length, at: this.clock.now() });
+    this.startedAtMs = this.clock.now();
+    this.emit({ type: "engine-start", jobs: this.states.length, at: this.startedAtMs });
 
     for (const state of this.states) {
       if (state.isReboot) {
@@ -284,6 +286,16 @@ export class LocalEngine {
   /** Number of runs currently in flight. */
   get activeRuns(): number {
     return this.inFlight.size;
+  }
+
+  /** Epoch ms of the `start()` call, or null while the engine has never been started. */
+  get startedAt(): number | null {
+    return this.startedAtMs;
+  }
+
+  /** True between `start()` and `stop()`. */
+  get running(): boolean {
+    return this.started && !this.stopped;
   }
 
   // ── Scheduling ─────────────────────────────────────────────────────────────
