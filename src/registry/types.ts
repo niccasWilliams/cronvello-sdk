@@ -104,16 +104,28 @@ export interface CronvelloAppConfig {
   /**
    * Public base URL of THIS app, where Cronvello delivers callbacks.
    * e.g. "https://app.example.com". The dispatch handler is mounted under it.
+   *
+   * Only needed for the hosted side (`sync()`, `dispatchUrl`). Local runs — `cronvello dev`,
+   * `trigger()` — never leave the machine, so you can leave it out entirely.
    */
-  appUrl: string;
-  /** Cronvello account API key (`crn_live_…`). */
-  apiKey: string;
+  appUrl?: string;
+  /**
+   * Cronvello account API key (`crn_live_…`).
+   *
+   * Only needed for the hosted side (`sync()`, `run()`, `client`). Leave it out to run
+   * locally with no account.
+   */
+  apiKey?: string;
   /**
    * Shared secret. Cronvello sends it back as `Authorization: Bearer <secret>` on every
    * dispatch; the mounted handler verifies it in constant time. Generate a strong random
    * value and store it in your env (e.g. `openssl rand -hex 32`).
+   *
+   * Only needed to accept dispatches from the hosted side. Without it there is no HTTP
+   * entry point to protect, so local runs don't require one — and any mounted handler
+   * refuses every request rather than running unauthenticated.
    */
-  dispatchSecret: string;
+  dispatchSecret?: string;
   /** Path the dispatch handler is mounted at. Default "/cronvello/dispatch". */
   dispatchPath?: string;
   /** Cronvello API base URL. Default "https://api.cronvello.com". */

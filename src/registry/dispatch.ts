@@ -23,7 +23,11 @@ export const NOOP_LOGGER: CronvelloLogger = {};
 
 export interface DispatcherState {
   jobs: Map<string, ResolvedJob>;
-  dispatchSecret: string;
+  /**
+   * Undefined for a local-only app (no hosted side, so nothing dispatches over HTTP). The
+   * handler then refuses every inbound request — it never falls back to running unauthenticated.
+   */
+  dispatchSecret: string | undefined;
   logger: CronvelloLogger | undefined;
   hooks?: CronvelloHooks | undefined;
   /** Reject inbound bodies larger than this many bytes (default 1 MiB). */
@@ -114,8 +118,15 @@ export function createDispatcher(state: DispatcherState): Dispatcher {
     }
 
     // 1. Authenticate: bearer must equal the dispatch secret (constant-time).
+    //    No secret configured means this app has no hosted side. Refuse rather than run an
+    //    unauthenticated handler — there is no token that could be correct.
+    const secret = state.dispatchSecret;
+    if (!secret) {
+      log.error?.("[cronvello] dispatch refused: no `dispatchSecret` configured on this app");
+      return resp(500, { ok: false, error: "Dispatch is not configured" });
+    }
     const token = parseBearer(req.authorization);
-    if (!token || !timingSafeEqual(token, state.dispatchSecret)) {
+    if (!token || !timingSafeEqual(token, secret)) {
       log.warn?.("[cronvello] dispatch rejected: bad or missing bearer token");
       return resp(401, { ok: false, error: "Unauthorized" });
     }
@@ -155,7 +166,7 @@ export function createDispatcher(state: DispatcherState): Dispatcher {
 
     // 5a. Async path — acknowledge now, run in the background, post the result back.
     if (callback) {
-      const work = runAndReportCallback(job, ctx, callback, state.dispatchSecret, log, invokeHandler);
+      const work = runAndReportCallback(job, ctx, callback, secret, log, invokeHandler);
       if (req.waitUntil) req.waitUntil(work);
       else void work; // fire-and-forget on long-running hosts
       return resp(202, { ok: true, job: key, accepted: true });

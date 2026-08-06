@@ -1,15 +1,29 @@
 /**
  * `defineCronvello` — the high-level, code-first entry point.
  *
+ * Jobs alone are enough. This runs on your machine with no account and no network:
+ *
+ *   export const cronvello = defineCronvello({
+ *     appName: "my-app",
+ *     jobs: {
+ *       "send-daily-digest": { schedule: "0 8 * * *", handler: async () => { … } },
+ *       "cleanup-temp":      { schedule: "*\/15 * * * *", handler: async () => { … } },
+ *     },
+ *   });
+ *
+ *   npx cronvello dev                       // real scheduler, locally
+ *   await cronvello.trigger("cleanup-temp") // run one handler now
+ *
+ * Add the hosted side later, when you want run history, alerts on missed runs and replay.
+ * `apiKey`, `appUrl` and `dispatchSecret` are needed only from that point on, and only the
+ * calls that use them complain if they're absent:
+ *
  *   export const cronvello = defineCronvello({
  *     appName: "my-app",
  *     appUrl: process.env.APP_URL!,
  *     apiKey: process.env.CRONVELLO_API_KEY!,
  *     dispatchSecret: process.env.CRONVELLO_DISPATCH_SECRET!,
- *     jobs: {
- *       "send-daily-digest": { schedule: "0 8 * * *", handler: async () => { … } },
- *       "cleanup-temp":      { schedule: "*\/15 * * * *", handler: async () => { … } },
- *     },
+ *     jobs: { … },
  *   });
  *
  *   await cronvello.sync();                 // reconcile the registry to Cronvello (idempotent)
@@ -38,7 +52,10 @@ const DEFAULT_DISPATCH_PATH = "/cronvello/dispatch";
 const DEFAULT_TIME_ZONE = "Europe/Berlin";
 
 export interface CronvelloApp {
-  /** The underlying low-level client for ad-hoc `/v1` calls. */
+  /**
+   * The underlying low-level client for ad-hoc `/v1` calls. Built on first access — reading it
+   * on an app configured without an `apiKey` throws {@link CronvelloConfigError}.
+   */
   readonly client: CronvelloClient;
   /** Resolved jobs, keyed by their stable registry key. */
   readonly jobs: ReadonlyMap<string, ResolvedJob>;
@@ -46,8 +63,13 @@ export interface CronvelloApp {
   readonly appName: string;
   /** Path the dispatch handler should be mounted at (e.g. "/cronvello/dispatch"). */
   readonly dispatchPath: string;
-  /** Absolute URL Cronvello calls back (appUrl + dispatchPath). */
+  /**
+   * Absolute URL Cronvello calls back (appUrl + dispatchPath). Reading it on an app configured
+   * without an `appUrl` throws {@link CronvelloConfigError} — a local-only app is never called back.
+   */
   readonly dispatchUrl: string;
+  /** True when this app has everything the hosted side needs (`apiKey`, `appUrl`, `dispatchSecret`). */
+  readonly isCloudConfigured: boolean;
 
   /** Reconcile the registry into Cronvello. Idempotent — safe to call on every boot/deploy. */
   sync(options?: SyncOptions): Promise<ReconcileResult>;
@@ -101,15 +123,23 @@ export function defineCronvello(config: CronvelloAppConfig): CronvelloApp {
 
   const jobs = normalizeJobs(config.jobs, validate);
   const dispatchPath = normalizePath(config.dispatchPath ?? DEFAULT_DISPATCH_PATH);
-  const dispatchUrl = joinUrl(config.appUrl, dispatchPath);
 
-  const client = new CronvelloClient({
-    apiKey: config.apiKey,
-    baseUrl: config.baseUrl ?? CRONVELLO_DEFAULT_BASE_URL,
-    ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
-    ...(config.maxRetries !== undefined ? { maxRetries: config.maxRetries } : {}),
-    ...(config.fetch ? { fetch: config.fetch } : {}),
-  });
+  // The cloud pieces are built on demand, so an app declared with jobs alone stays fully usable
+  // locally (`dev()`, `trigger()`) and only complains when something actually needs the account.
+  let clientInstance: CronvelloClient | undefined;
+  const getClient = (): CronvelloClient => {
+    if (!clientInstance) {
+      requireCloud(config, ["apiKey"], "Talking to the Cronvello API");
+      clientInstance = new CronvelloClient({
+        apiKey: config.apiKey!,
+        baseUrl: config.baseUrl ?? CRONVELLO_DEFAULT_BASE_URL,
+        ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
+        ...(config.maxRetries !== undefined ? { maxRetries: config.maxRetries } : {}),
+        ...(config.fetch ? { fetch: config.fetch } : {}),
+      });
+    }
+    return clientInstance;
+  };
 
   const dispatcher = createDispatcher({
     jobs,
@@ -120,20 +150,32 @@ export function defineCronvello(config: CronvelloAppConfig): CronvelloApp {
   });
 
   const app: CronvelloApp = {
-    client,
+    get client(): CronvelloClient {
+      return getClient();
+    },
     jobs,
     appName: config.appName,
     dispatchPath,
-    dispatchUrl,
+    get dispatchUrl(): string {
+      requireCloud(config, ["appUrl"], "Building the dispatch URL");
+      return joinUrl(config.appUrl!, dispatchPath);
+    },
+    get isCloudConfigured(): boolean {
+      return missingCloudFields(config, CLOUD_FIELDS).length === 0;
+    },
 
     async sync(options?: SyncOptions): Promise<ReconcileResult> {
+      requireCloud(config, CLOUD_FIELDS, "Syncing your jobs to Cronvello");
+      const client = getClient();
+      const dispatchUrl = joinUrl(config.appUrl!, dispatchPath);
+      const dispatchSecret = config.dispatchSecret!;
       const opts = options ?? {};
       // Prefer the atomic server-side reconcile (one round-trip). dryRun is only supported by
       // the local differ, so it always takes the client-side path.
       if (!opts.dryRun) {
         try {
           const res = await client.reconcileRegistry(
-            buildRegistryRequest(config, dispatchUrl, defaultTimeZone, [...jobs.values()], opts),
+            buildRegistryRequest(config, dispatchSecret, dispatchUrl, defaultTimeZone, [...jobs.values()], opts),
           );
           return {
             jobId: res.job.id,
@@ -162,7 +204,7 @@ export function defineCronvello(config: CronvelloAppConfig): CronvelloApp {
           client,
           appName: config.appName,
           dispatchUrl,
-          dispatchSecret: config.dispatchSecret,
+          dispatchSecret,
           defaultTimeZone,
           jobs: [...jobs.values()],
         },
@@ -174,6 +216,7 @@ export function defineCronvello(config: CronvelloAppConfig): CronvelloApp {
       if (!jobs.has(key)) {
         throw new CronvelloConfigError(`Unknown job '${key}'. Known: ${[...jobs.keys()].join(", ") || "(none)"}`);
       }
+      const client = getClient();
       const containers = await client.jobs.list();
       const container = containers.find((j) => j.name === config.appName);
       if (!container) {
@@ -189,8 +232,16 @@ export function defineCronvello(config: CronvelloAppConfig): CronvelloApp {
 
     trigger: (key: string, payload?: Record<string, unknown>) => dispatcher.runLocal(key, payload),
     handle: dispatcher.handle,
-    expressHandler: () => expressHandler(app),
-    nextHandler: () => nextHandler(app),
+    // Mounting a dispatch route that could only ever answer "not configured" hides the real
+    // mistake behind a runtime 500, so both adapters fail at mount time instead.
+    expressHandler: () => {
+      requireCloud(config, ["dispatchSecret"], "Mounting the dispatch handler");
+      return expressHandler(app);
+    },
+    nextHandler: () => {
+      requireCloud(config, ["dispatchSecret"], "Mounting the dispatch handler");
+      return nextHandler(app);
+    },
 
     dev(options?: DevOptions): LocalEngine {
       const { autoStart = true, dashboard, ...engineOptions } = options ?? {};
@@ -241,9 +292,8 @@ function buildEngineJobs(jobs: ResolvedJob[], defaultTimeZone: string): EngineJo
   return engineJobs;
 }
 
-/** Config for `defineCronvello.fromEnv` — the three secret fields become optional (read from env). */
-export type CronvelloEnvConfig = Omit<CronvelloAppConfig, "apiKey" | "dispatchSecret" | "appUrl"> &
-  Partial<Pick<CronvelloAppConfig, "apiKey" | "dispatchSecret" | "appUrl">>;
+/** Config for `defineCronvello.fromEnv` — the three hosted-side fields are read from the environment. */
+export type CronvelloEnvConfig = CronvelloAppConfig;
 
 // eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace defineCronvello {
@@ -263,13 +313,19 @@ export namespace defineCronvello {
     const appUrl = config.appUrl ?? env["CRONVELLO_APP_URL"] ?? env["PUBLIC_URL"];
     const baseUrl = config.baseUrl ?? env["CRONVELLO_API_URL"];
 
+    // fromEnv exists to wire up the hosted side, so it still fails fast on a half-configured
+    // deploy rather than waiting for the first sync. Local-only apps skip it and call
+    // defineCronvello() directly, which needs no credentials at all.
     const missing = [
       !apiKey && "CRONVELLO_API_KEY",
       !dispatchSecret && "CRONVELLO_DISPATCH_SECRET",
       !appUrl && "CRONVELLO_APP_URL (or PUBLIC_URL)",
     ].filter(Boolean);
     if (missing.length) {
-      throw new CronvelloConfigError(`defineCronvello.fromEnv() is missing required env: ${missing.join(", ")}.`);
+      throw new CronvelloConfigError(
+        `defineCronvello.fromEnv() is missing required env: ${missing.join(", ")}. ` +
+          `To run locally with no account, use defineCronvello({ appName, jobs }) instead — it needs none of these.`,
+      );
     }
 
     return defineCronvello({
@@ -282,17 +338,46 @@ export namespace defineCronvello {
   }
 }
 
+/** The three fields the hosted side needs. Absent them, an app is local-only but fully usable. */
+const CLOUD_FIELDS = ["apiKey", "appUrl", "dispatchSecret"] as const;
+type CloudField = (typeof CLOUD_FIELDS)[number];
+
+const CLOUD_FIELD_HINT: Record<CloudField, string> = {
+  apiKey: "`apiKey` (crn_live_…, from your Cronvello account)",
+  appUrl: "`appUrl` (the public https URL of THIS app, where Cronvello delivers callbacks)",
+  dispatchSecret: "`dispatchSecret` (a random 32-byte value: run `npx cronvello secret`)",
+};
+
+function missingCloudFields(config: CronvelloAppConfig, fields: ReadonlyArray<CloudField>): CloudField[] {
+  return fields.filter((f) => !config[f]);
+}
+
+/**
+ * Guard the hosted-side entry points. Only these need an account — declaring jobs, running them
+ * locally and `cronvello dev` never do, which is why the config no longer demands credentials
+ * up front.
+ */
+function requireCloud(config: CronvelloAppConfig, fields: ReadonlyArray<CloudField>, purpose: string): void {
+  const missing = missingCloudFields(config, fields);
+  if (!missing.length) return;
+  throw new CronvelloConfigError(
+    `${purpose} needs config this app doesn't have: ${missing.map((f) => CLOUD_FIELD_HINT[f]).join(", ")}. ` +
+      `Local runs (\`cronvello dev\`, \`trigger()\`) work without any of it.`,
+  );
+}
+
 function validateConfig(config: CronvelloAppConfig): void {
   if (!config) throw new CronvelloConfigError("defineCronvello requires a config object.");
   if (!config.appName || !config.appName.trim()) throw new CronvelloConfigError("`appName` is required.");
-  if (!config.appUrl || !/^https?:\/\//i.test(config.appUrl)) {
+  if (!config.jobs) throw new CronvelloConfigError("`jobs` is required.");
+  // The cloud fields are optional, but a *present* value that is wrong is still a bug worth
+  // catching here rather than at the first sync against production.
+  if (config.appUrl !== undefined && !/^https?:\/\//i.test(config.appUrl)) {
     throw new CronvelloConfigError("`appUrl` must be an absolute http(s) URL (the public URL of THIS app).");
   }
-  if (!config.apiKey) throw new CronvelloConfigError("`apiKey` (crn_live_…) is required.");
-  if (!config.dispatchSecret || config.dispatchSecret.length < 16) {
-    throw new CronvelloConfigError("`dispatchSecret` is required and must be at least 16 chars (use a random 32-byte value).");
+  if (config.dispatchSecret !== undefined && config.dispatchSecret.length < 16) {
+    throw new CronvelloConfigError("`dispatchSecret` must be at least 16 chars (use a random 32-byte value).");
   }
-  if (!config.jobs) throw new CronvelloConfigError("`jobs` is required.");
 }
 
 function normalizeJobs(input: CronvelloJobsInput, validate: boolean): Map<string, ResolvedJob> {
@@ -339,6 +424,7 @@ function joinUrl(base: string, path: string): string {
 /** Build the PUT /v1/registry body from the registry jobs. */
 function buildRegistryRequest(
   config: CronvelloAppConfig,
+  dispatchSecret: string,
   dispatchUrl: string,
   defaultTimeZone: string,
   jobs: ResolvedJob[],
@@ -350,7 +436,7 @@ function buildRegistryRequest(
       key: j.key,
       schedule: cfg.schedule,
       targetUrl: dispatchUrl,
-      targetToken: config.dispatchSecret,
+      targetToken: dispatchSecret,
       method: "POST",
       timeZone: cfg.timeZone ?? defaultTimeZone,
       requestBody: JSON.stringify({ job: j.key, ...(cfg.payload ?? {}) }),

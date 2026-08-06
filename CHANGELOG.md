@@ -3,6 +3,41 @@
 All notable changes to `@cronvello/sdk` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/) (pre-1.0: minor-feature additions ship as patch releases).
 
+## 0.3.0
+
+**Credentials are no longer part of defining jobs.** 0.2.0 made the SDK run locally with no account,
+but `defineCronvello()` still demanded an `apiKey`, an `appUrl` and a `dispatchSecret` before it
+would construct anything. So the documented way to try the local engine was to invent a fake API
+key for a scheduler that never makes a network call. That was real config standing in for no real
+constraint, and it landed on exactly the people the local mode is meant to attract.
+
+### Changed
+
+- **`apiKey`, `appUrl` and `dispatchSecret` are now optional.** `defineCronvello({ appName, jobs })`
+  is a complete, valid app. `cronvello dev`, `dev()` and `trigger()` work on it unchanged.
+- **The hosted side validates where it is used, not at define time.** `sync()`, `run()`, `client`,
+  `dispatchUrl`, `expressHandler()` and `nextHandler()` each check what they actually need and throw
+  a `CronvelloConfigError` naming every missing field. `client` is now built on first access rather
+  than eagerly.
+- A *present* but malformed value is still rejected at define time (`appUrl` must be absolute
+  http(s), `dispatchSecret` at least 16 chars). This removes a requirement, not a check.
+
+### Added
+
+- **`app.isCloudConfigured`** — true when `apiKey`, `appUrl` and `dispatchSecret` are all present.
+
+### Security
+
+- An app without a `dispatchSecret` never runs a job from an HTTP request. `expressHandler()` and
+  `nextHandler()` throw at mount time rather than exposing a route, and `handle()` answers `500`
+  ("Dispatch is not configured") before touching the body. There is no path in which a missing
+  secret degrades into accepting unauthenticated dispatches.
+
+### Compatibility
+
+Backwards compatible: every config valid in 0.2.x is still valid and behaves identically. Minor
+rather than patch because the public config type widened and `client` / `dispatchUrl` became lazy.
+
 ## 0.2.1
 
 - Move the canonical SDK source to the public

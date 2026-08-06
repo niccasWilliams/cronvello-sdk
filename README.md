@@ -4,13 +4,44 @@
 [![CI](https://github.com/niccasWilliams/cronvello-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/niccasWilliams/cronvello-sdk/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/@cronvello/sdk)](./LICENSE)
 
-**Code-first cron jobs for [Cronvello](https://cronvello.com).** Define your scheduled jobs in
-your codebase, and the SDK keeps them in sync with Cronvello and runs them — **no dashboard
-required**. Your jobs always follow your code.
+**Code-first cron jobs.** Declare your scheduled jobs in your codebase and run them: with a real
+scheduler on your own machine, and optionally with [Cronvello](https://cronvello.com) hosting them.
+**No dashboard required.** Your jobs always follow your code.
+
+## Try it without an account
+
+Three steps, no signup, nothing leaves your machine:
 
 ```bash
 npm i @cronvello/sdk
 ```
+
+```ts
+// cronvello.config.ts
+import { defineCronvello, every } from "@cronvello/sdk";
+
+export default defineCronvello({
+  appName: "my-app",
+  jobs: {
+    heartbeat: { schedule: every("10s"), handler: async () => console.log("beat") },
+  },
+});
+```
+
+```bash
+npx cronvello dev
+```
+
+That starts an actual scheduler loop: each next fire time computed from the cron expression,
+timezone- and DST-aware, with overlap protection, per-run timeouts and retry with backoff. It makes
+no network calls. This part is MIT licensed and works standalone. See
+[Local development](#local-development-no-account--cronvello-dev) for the full output.
+
+The hosted side adds what a local loop can't: run history, retries you can inspect, alerts when a
+run *doesn't* happen, and replay. It's opt-in, and only the calls that use it (`sync()`, `run()`,
+the dispatch handler) need credentials.
+
+---
 
 - ✅ **Runs locally with no account** — `npx cronvello dev` starts a real scheduler loop on your
   machine (timezone/DST, overlap protection, timeouts, retry/backoff). No cloud, no network.
@@ -27,7 +58,7 @@ npm i @cronvello/sdk
 
 ---
 
-## The idea
+## The idea (hosted)
 
 You declare jobs once, in code. On every deploy you call `sync()`, and the SDK reconciles your
 registry into Cronvello: **one Cronvello "job" container for your app, one task per registry
@@ -37,7 +68,10 @@ Change a schedule → it's updated. Idempotent, every time.
 
 ---
 
-## Quick start (Express)
+## Hosted quick start (Express)
+
+> Needs a Cronvello account. To stay local, skip to
+> [Local development](#local-development-no-account--cronvello-dev).
 
 ```ts
 // cronvello.ts
@@ -89,7 +123,7 @@ That's it. No dashboard clicks. The jobs in your code are the jobs that run.
 
 ---
 
-## Quick start (Next.js App Router)
+## Hosted quick start (Next.js App Router)
 
 ```ts
 // app/cronvello/dispatch/route.ts
@@ -221,15 +255,15 @@ your machine that actually fires the handlers when they're due — computing eac
 its cron expression (timezone- and DST-aware) and enforcing the same production policies the cloud
 does: **overlap protection, per-run timeout, and retry with backoff**. No cloud, no network.
 
+Jobs are the only required config. `apiKey`, `appUrl` and `dispatchSecret` belong to the hosted
+side, and nothing local asks for them:
+
 ```ts
 // cronvello.config.ts
 import { defineCronvello, every, daily } from "@cronvello/sdk";
 
 export const cronvello = defineCronvello({
   appName: "my-app",
-  appUrl: "https://my-app.example.com",
-  apiKey: "crn_local_dev",            // any non-empty value — the local engine never calls the API
-  dispatchSecret: "local-dev-secret-0123456789abcdef",
   timeZone: "Europe/Berlin",
   jobs: {
     heartbeat:      { schedule: every("10s"), handler: async () => { console.log("beat"); } },
@@ -422,6 +456,10 @@ node -e "console.log(require('@cronvello/sdk').generateDispatchSecret())"
 
 Store it as `CRONVELLO_DISPATCH_SECRET` in both your app env and nowhere else — `sync()` registers
 it with Cronvello as the task's bearer token (encrypted at rest; never returned on read).
+
+An app defined without a `dispatchSecret` has no HTTP entry point to protect, so `expressHandler()`
+and `nextHandler()` refuse to be mounted at all, and a dispatch that somehow reaches `handle()` is
+rejected. There is no configuration in which an unauthenticated request runs a job.
 
 ---
 

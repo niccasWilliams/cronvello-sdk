@@ -33,14 +33,64 @@ describe("defineCronvello — config validation", () => {
   it("requires appName", () => {
     expect(() => defineCronvello(cfg({ appName: "" }))).toThrow(CronvelloConfigError);
   });
-  it("requires an absolute http(s) appUrl", () => {
+  it("rejects an appUrl that is not an absolute http(s) URL", () => {
     expect(() => defineCronvello(cfg({ appUrl: "app.example.com" }))).toThrow(/absolute http/);
   });
-  it("requires an apiKey", () => {
-    expect(() => defineCronvello(cfg({ apiKey: "" }))).toThrow(/apiKey/);
-  });
-  it("requires a dispatchSecret of at least 16 chars", () => {
+  it("rejects a dispatchSecret shorter than 16 chars when one is given", () => {
     expect(() => defineCronvello(cfg({ dispatchSecret: "tooshort" }))).toThrow(/dispatchSecret/);
+  });
+});
+
+describe("defineCronvello — local-only apps (no account)", () => {
+  const localCfg = (): CronvelloAppConfig => ({
+    appName: "Local App",
+    jobs: { digest: { schedule: "0 8 * * *", handler: async () => "ok" } },
+  });
+
+  it("defines an app from jobs alone, with no apiKey, appUrl or dispatchSecret", () => {
+    const app = defineCronvello(localCfg());
+    expect(app.keys()).toEqual(["digest"]);
+    expect(app.isCloudConfigured).toBe(false);
+    expect(app.dispatchPath).toBe("/cronvello/dispatch");
+  });
+
+  it("runs a handler locally", async () => {
+    await expect(defineCronvello(localCfg()).trigger("digest")).resolves.toBe("ok");
+  });
+
+  it("starts the local engine", async () => {
+    const engine = defineCronvello(localCfg()).dev({ autoStart: false, installSignalHandlers: false });
+    expect(engine.jobs().map((j) => j.key)).toEqual(["digest"]);
+    await engine.stop();
+  });
+
+  it("reports cloud config as complete once all three fields are present", () => {
+    expect(defineCronvello(cfg()).isCloudConfigured).toBe(true);
+  });
+
+  it("names every missing field when the cloud is actually used", async () => {
+    const app = defineCronvello(localCfg());
+    await expect(app.sync()).rejects.toThrow(CronvelloConfigError);
+    await expect(app.sync()).rejects.toThrow(/apiKey[\s\S]*appUrl[\s\S]*dispatchSecret/);
+    expect(() => app.client).toThrow(/apiKey/);
+    expect(() => app.dispatchUrl).toThrow(/appUrl/);
+  });
+
+  it("refuses to mount a dispatch handler that could never authenticate", () => {
+    const app = defineCronvello(localCfg());
+    expect(() => app.expressHandler()).toThrow(/dispatchSecret/);
+    expect(() => app.nextHandler()).toThrow(/dispatchSecret/);
+  });
+
+  it("rejects an inbound dispatch instead of running it unauthenticated", async () => {
+    const res = await defineCronvello(localCfg()).handle({
+      method: "POST",
+      authorization: "Bearer anything",
+      rawBody: JSON.stringify({ job: "digest" }),
+      headers: {},
+    });
+    expect(res.status).toBe(500);
+    expect(res.body["ok"]).toBe(false);
   });
 });
 
