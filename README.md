@@ -594,6 +594,48 @@ Transient failures (429 / 5xx / network) are retried automatically with backoff.
 
 ---
 
+## Operator client
+
+You do not need this to *use* Cronvello. It is the backend-to-backend surface for the service
+that **provisions apps into** Cronvello — registering them, checking their registration, minting
+new per-app tokens, removing them.
+
+It is a separate class on purpose. It runs against the same host as `/v1`, but it takes
+Cronvello's **service key**, which is authorized across every registered app — far broader than
+an account `apiKey`. Two classes with two differently named options means you cannot send the
+wrong credential by accident.
+
+```ts
+import { CronvelloAdminClient } from "@cronvello/sdk";
+
+const admin = new CronvelloAdminClient({ serviceKey: process.env.CRONVELLO_SERVICE_KEY! });
+
+// Idempotent upsert, keyed on the string appId. Re-run it on every provisioning pass.
+const app = await admin.externalApps.register({
+  appId: "node-shop",
+  name: "Shop",
+  base_url: "https://shop.example.com",
+  generateApiKey: true,
+});
+app.generatedApiKey;  // plaintext, exactly ONCE, and only for a newly created app
+
+const status = await admin.externalApps.status("node-shop");
+// { registered, isActive, isLive, lastSyncedAt, jobCount }
+
+// Drift recovery when the current token is lost. Invalidates the old one.
+const { newApiKey } = await admin.externalApps.rotateKey("node-shop");
+
+// Takes the NUMERIC app id, not the string appId — an asymmetry in the server contract.
+await admin.externalApps.delete(app.id);
+```
+
+Cross-field rules (`base_url` or `targetUrl`; a key or `generateApiKey`; both OAuth credentials)
+are checked before the request leaves, so a bad call raises `CronvelloConfigError` synchronously
+rather than returning an opaque 400. Everything else — errors, retries, envelope handling —
+behaves exactly as the low-level client above.
+
+---
+
 ## License
 
 MIT

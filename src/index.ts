@@ -5,6 +5,9 @@
  *   • High-level registry: `defineCronvello({ jobs })` → `.sync()` + `.expressHandler()` / `.nextHandler()`.
  *     Define jobs in code; the SDK reconciles them to https://api.cronvello.com and runs them.
  *   • Low-level client: `new CronvelloClient({ apiKey })` → typed access to the whole `/v1` API.
+ *
+ * Plus an operator surface, `new CronvelloAdminClient({ serviceKey })`, for the service that
+ * registers apps into Cronvello. Separate class, separate credential — see its doc comment.
  */
 
 // ── High-level registry ────────────────────────────────────────────────────
@@ -59,6 +62,23 @@ export {
   CRONVELLO_DEFAULT_BASE_URL,
   type CronvelloClientOptions,
 } from "./client/client.js";
+
+// ── Operator client (backend-to-backend) ────────────────────────────
+// Not needed to *use* Cronvello — this is for the service that provisions apps into it.
+// It takes Cronvello's service key, deliberately a different option than the account `apiKey`.
+export {
+  CronvelloAdminClient,
+  type CronvelloAdminClientOptions,
+} from "./client/admin-client.js";
+export type {
+  ExternalApp,
+  ExternalAppAuthMethod,
+  ExternalAppRegisterInput,
+  ExternalAppRegisterResult,
+  ExternalAppRotateKeyResult,
+  ExternalAppStatus,
+  CatalogRetiredReason,
+} from "./internal/admin-wire.js";
 
 // ── Errors ─────────────────────────────────────────────────────────────────
 export {
