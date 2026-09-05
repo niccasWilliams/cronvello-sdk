@@ -3,6 +3,36 @@
 All notable changes to `@cronvello/sdk` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/) (pre-1.0: minor-feature additions ship as patch releases).
 
+## 0.5.0
+
+**`externalApps.status()` now answers the question an operator actually has: is this registration
+still backed by a usable secret?** It used to return registration and liveness only — five fields,
+none of them about the credential. The only responses carrying that information were `register()`
+and `rotateKey()`: an upsert and a key mint. A health check built on either one writes on every
+pass, and `rotateKey()` invalidates the very token it was asked about. So the read-only question
+had no read-only answer.
+
+### Added
+
+- **`ExternalAppStatus.authMethod`, `.hasApiKey`, `.apiKeyMasked`, `.hasOAuthClientSecret` and
+  `.lastHealthCheckAt`.** The *state* of the credential, never its value. `apiKeyMasked` is enough
+  to tell two secrets apart across calls and never enough to use one.
+- `registered: true` with `hasApiKey: false` is now an expressible — and real — state: a
+  registration that outlived its secret. Previously it was indistinguishable from a healthy one.
+
+Additive only; every field that existed before is unchanged. Requires a Cronvello server from
+2026-09-05 or later — against an older one the new fields are simply absent.
+
+## 0.4.0
+
+### Added
+
+- **`CronvelloAdminClient`** — the operator surface for `/external-apps/service/*`
+  (`register`, `status`, `rotateKey`, `delete`). Deliberately a separate class from
+  `CronvelloClient`: the service key authorizes across every registered app while an account key
+  authorizes one, and two differently named options (`serviceKey` vs `apiKey`) make sending the
+  wrong one impossible to express.
+
 ## 0.3.0
 
 **Credentials are no longer part of defining jobs.** 0.2.0 made the SDK run locally with no account,

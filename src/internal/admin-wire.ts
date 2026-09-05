@@ -147,4 +147,23 @@ export interface ExternalAppStatus {
   lastSyncedAt: string | null;
   isLive: boolean;
   jobCount: number;
+  /**
+   * How the app authenticates, or `null` when it is not registered.
+   *
+   * The four fields from here down describe the **state** of the app's credential, never
+   * its value. They exist so an operator can verify that a registration is still backed by
+   * a usable secret with a *read*. Before they were added, the only responses carrying that
+   * information were {@link ExternalAppsResource.register} and
+   * {@link ExternalAppsResource.rotateKey} — an upsert and a key mint. A health check built
+   * on either one writes on every pass, and `rotateKey` invalidates the very token it was
+   * asked about.
+   */
+  authMethod: ExternalAppAuthMethod | null;
+  /** Whether a per-app token is stored. `registered: true` with `hasApiKey: false` is a real state: the registration outlived its secret. */
+  hasApiKey: boolean;
+  /** Masked form of the stored token — enough to tell two secrets apart across calls, never enough to use one. */
+  apiKeyMasked: string | null;
+  hasOAuthClientSecret: boolean;
+  /** When the server last checked the app's reachability. `null` when never checked. */
+  lastHealthCheckAt: string | null;
 }
