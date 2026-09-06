@@ -139,10 +139,21 @@ export interface ExternalAppRotateKeyResult extends ExternalApp {
   newApiKey: string;
 }
 
-/** Registration status for one app, keyed by its string `appId`. */
+/** Registration status for one app, addressed either by its string `appId` or by its numeric id. */
 export interface ExternalAppStatus {
-  /** `false` when no app with that `appId` exists; every other field is then at its zero value. */
+  /** `false` when no such app exists; every other field is then at its zero value. */
   registered: boolean;
+  /**
+   * The label the server currently files this registration under, or `null` when it is not
+   * registered.
+   *
+   * Worth reading even though you passed an identifier in: when you looked the row up by its
+   * numeric id and this comes back different from the `appId` you have on file, your copy of
+   * the label is stale — the app was renamed on one side only. Without this field a rename is
+   * indistinguishable from a deletion, which is exactly how a live connection came to report
+   * "not registered" for days while it kept delivering jobs.
+   */
+  appId: string | null;
   isActive: boolean;
   lastSyncedAt: string | null;
   isLive: boolean;

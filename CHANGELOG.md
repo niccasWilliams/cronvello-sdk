@@ -3,6 +3,29 @@
 All notable changes to `@cronvello/sdk` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/) (pre-1.0: minor-feature additions ship as patch releases).
 
+## 0.6.0
+
+**A registration can now be addressed by something that does not change.** `externalApps.status()`
+finds an app by its string `appId` — a caller-chosen label. Labels get renamed. When one did, the
+lookup answered `registered: false` for a connection that was delivering jobs the entire time, and
+the operator on the other end saw a dead edge for days with nothing actually wrong with it. A
+rename and a deletion looked identical, so there was no way to tell them apart.
+
+### Added
+
+- **`externalApps.statusByRegistrationId(id)`** — the same status, addressed by the numeric
+  `ExternalApp.id` that `register()` hands back. It survives a rename. Like `delete()`, it rejects
+  a string `appId` locally: passing the stale label to the method built to outlive it would defeat
+  the point.
+- **`ExternalAppStatus.appId`** — the label the server currently files the row under, or `null`
+  when it is not registered. Read it after a lookup by id to notice that your own copy of the name
+  has gone stale, and repair it instead of concluding the app is gone.
+
+Additive only. `statusByRegistrationId()` requires a Cronvello server from 2026-09-06 or later; an
+older one has no such route and answers 404 (`CronvelloApiError`, `isNotFound`), which is distinct
+from a present route reporting an unknown id — that is a 200 with `registered: false`. Against an
+older server `appId` is simply absent from the response.
+
 ## 0.5.0
 
 **`externalApps.status()` now answers the question an operator actually has: is this registration

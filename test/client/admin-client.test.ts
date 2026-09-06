@@ -110,6 +110,22 @@ describe("CronvelloAdminClient — responses", () => {
     expect(status.registered).toBe(false);
     expect(status.jobCount).toBe(0);
   });
+
+  it("addresses the status by numeric registration id on its own route", async () => {
+    const { c, mf } = admin(() => ({ registered: true, appId: "APP_WILLIAMS", isActive: true, jobCount: 2 }));
+    await c.externalApps.statusByRegistrationId(1);
+    expect(new URL(mf.lastCall().url).pathname).toBe("/external-apps/service/status-by-registration/1");
+  });
+
+  it("hands back the label the server files the row under, so a stale copy is visible", async () => {
+    // Der Punkt dieses Feldes: der Aufrufer fragte ueber den Zeiger, weil sein eigener
+    // Name veraltet sein KANN. Ohne die Antwort haette er keine Moeglichkeit, das zu
+    // merken — eine Umbenennung saehe aus wie eine geloeschte App.
+    const { c } = admin(() => ({ registered: true, appId: "APP_WILLIAMS", isActive: true, jobCount: 2 }));
+    const status = await c.externalApps.statusByRegistrationId(1);
+    expect(status.appId).toBe("APP_WILLIAMS");
+    expect(status.registered).toBe(true);
+  });
 });
 
 describe("CronvelloAdminClient — error handling", () => {
@@ -188,6 +204,14 @@ describe("CronvelloAdminClient — input guards", () => {
     expect(() => c.externalApps.delete("node-shop")).toThrow(CronvelloConfigError);
     expect(() => c.externalApps.delete(0)).toThrow(CronvelloConfigError);
     expect(() => c.externalApps.delete(1.5)).toThrow(CronvelloConfigError);
+  });
+
+  it("rejects the string appId on statusByRegistrationId — passing the stale label there defeats the point", () => {
+    const { c } = admin();
+    // @ts-expect-error statusByRegistrationId takes the numeric ExternalApp.id
+    expect(() => c.externalApps.statusByRegistrationId("orvello")).toThrow(CronvelloConfigError);
+    expect(() => c.externalApps.statusByRegistrationId(0)).toThrow(CronvelloConfigError);
+    expect(() => c.externalApps.statusByRegistrationId(1.5)).toThrow(CronvelloConfigError);
   });
 
   it("makes no network call when a guard trips", () => {

@@ -109,10 +109,39 @@ class ExternalAppsResource {
     return this.t.request({ method: "POST", path: "/external-apps/service/register", body: input });
   }
 
-  /** Registration status, last-sync info and job count for one app, by its string `appId`. */
+  /**
+   * Registration status, last-sync info and job count for one app, by its string `appId`.
+   *
+   * ⚠ `appId` is a caller-chosen label, and a label can be renamed. If you stored the numeric
+   * id from `register()`, prefer {@link statusByRegistrationId} — this method cannot tell a
+   * renamed app apart from a deleted one, and answers `registered: false` for both.
+   */
   status(appId: string): Promise<ExternalAppStatus> {
     assertAppId(appId, "status");
     return this.t.request({ method: "GET", path: `/external-apps/service/status/${enc(appId)}` });
+  }
+
+  /**
+   * The same status, addressed by the numeric {@link ExternalApp.id} that `register()` returned.
+   *
+   * Both methods name the same row; only this one survives a rename. When one operator renamed
+   * an app from `williams` to `orvello`, {@link status} stopped finding it and reported "not
+   * registered" for a connection that was delivering jobs the whole time — the edge sat red for
+   * days with nothing actually wrong with it.
+   *
+   * Read `appId` off the result to repair your own copy of the label when it has gone stale.
+   *
+   * Requires a Cronvello server from 2026-09-06 or later. An older one has no such route and
+   * answers 404, which surfaces as a `CronvelloApiError` with `isNotFound` — distinct from a
+   * present route reporting an unknown id, which is a 200 with `registered: false`.
+   */
+  statusByRegistrationId(id: number): Promise<ExternalAppStatus> {
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new CronvelloConfigError(
+        `externalApps.statusByRegistrationId() takes the numeric app id (ExternalApp.id), not the string appId — received ${JSON.stringify(id)}.`,
+      );
+    }
+    return this.t.request({ method: "GET", path: `/external-apps/service/status-by-registration/${id}` });
   }
 
   /**
