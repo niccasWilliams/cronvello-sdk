@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.0 - 2026-09-07
+
+- Add `externalApps.reconcileApiKeyAnchors()`. The caller cannot work out which registration an
+  existing key belongs to — both pieces of evidence live on the server. The chain is
+  `key --(audit log: job.create)--> containers --(their tasks' target address)--> registration`,
+  and no link in it compares a name. Where the chain breaks it is reported with the reason rather
+  than patched; existing bindings are never overwritten. Reports by default, writes on
+  `{ apply: true }`.
+
 ## 0.9.0 - 2026-09-07
 
 **A registration can now own a key, and the status can prove that work arrives.** Two halves of

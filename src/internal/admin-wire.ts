@@ -357,3 +357,32 @@ export interface ExternalAppBoundApiKey {
   keyPrefix: string;
   externalAppId: number | null;
 }
+
+/**
+ * What {@link ExternalAppsResource.reconcileApiKeyAnchors} derived — and what it could not.
+ *
+ * The split is the point. `bound` carries a derivation that held all the way through;
+ * `ambiguous` carries one that broke, with the reason it broke. Collapsing the two into a
+ * count would hide exactly the cases a person needs to look at.
+ */
+export interface ExternalAppAnchorReconcileResult {
+  mode: "apply" | "report";
+  /** How many unanchored keys were examined. */
+  checked: number;
+  /** How many keys already carried an anchor and were left alone. */
+  alreadyAnchored: number;
+  bound: Array<{
+    apiKeyId: number;
+    keyName: string;
+    registrationId: number;
+    appId: string;
+    /** The chain that carried this binding, in words — readable without the database. */
+    evidence: string;
+  }>;
+  ambiguous: Array<{
+    apiKeyId: number;
+    keyName: string;
+    /** Why the derivation stopped here rather than guessing. */
+    reason: string;
+  }>;
+}

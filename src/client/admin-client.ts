@@ -23,6 +23,7 @@ import { Transport, type FetchLike } from "../internal/http.js";
 import { CronvelloConfigError } from "../internal/errors.js";
 import { CRONVELLO_DEFAULT_BASE_URL } from "./client.js";
 import type {
+  ExternalAppAnchorReconcileResult,
   ExternalAppApiKeyList,
   ExternalAppBindApiKeyInput,
   ExternalAppBoundApiKey,
@@ -261,6 +262,33 @@ export class ExternalAppsResource {
   listApiKeys(registrationId: number): Promise<ExternalAppApiKeyList> {
     assertRegistrationId(registrationId, "listApiKeys");
     return this.t.request({ method: "GET", path: `/external-apps/service/api-keys/${registrationId}` });
+  }
+
+  /**
+   * Work out which registration each unanchored /v1 key belongs to — and prove it.
+   *
+   * ⭐ The caller cannot answer this itself: both pieces of evidence live on the server.
+   * The chain is
+   *
+   *     key --(audit log: job.create)--> containers --(their tasks' target address)--> registration
+   *
+   * and no link in it compares a name. That matters because the obvious shortcut — matching
+   * a container to a registration by label — is wrong in practice: on one real estate it
+   * would have filed three containers named "Williams … Jobs" under the registration
+   * `APP_WILLIAMS`, while their tasks were delivering to three entirely different apps.
+   *
+   * Where the chain breaks it is reported, not patched. A key whose containers deliver to two
+   * registrations, or to an address no registration carries, comes back under `ambiguous`
+   * with the reason — a derivation that guesses when in doubt is not evidence, it is a
+   * hunch with ceremony. Existing bindings are never overwritten.
+   *
+   * Reports by default. Pass `{ apply: true }` to write.
+   *
+   * Requires a Cronvello server from 2026-09-07 or later.
+   */
+  reconcileApiKeyAnchors(options: { apply?: boolean } = {}): Promise<ExternalAppAnchorReconcileResult> {
+    const query = options.apply ? "?apply=true" : "";
+    return this.t.request({ method: "POST", path: `/external-apps/service/api-keys/reconcile${query}` });
   }
 
   /**
