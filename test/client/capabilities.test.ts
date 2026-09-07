@@ -61,4 +61,27 @@ describe("cronvelloCapabilities", () => {
     const { capabilities } = cronvelloCapabilities();
     expect(capabilities.livenessSemantics.supported).toBe(true);
   });
+
+  it("kann einer App einen Schluessel geben, der zu EINER Registrierung gehoert", () => {
+    // ⭐ Ohne diese Faehigkeit landet jeder per sync() angelegte Job-Container ohne
+    // Zuordnung: /v1 kennt nur das Konto, und ein Konto fuehrt mehrere Registrierungen.
+    // Gemessen am 07.09.2026 meldeten drei Registrierungen 0 Jobs, waehrend ihre Apps
+    // 45 Tasks fuhren — von toten Registrierungen nicht zu unterscheiden.
+    const { capabilities } = cronvelloCapabilities();
+
+    expect(capabilities.registrationAnchoring.supported).toBe(true);
+    // Beide Wege muessen da sein: `issueApiKey` fuer alles Neue, `bindApiKey` fuer den
+    // Bestand — ohne den zweiten muesste jede bestehende App einen neuen Wert ausgerollt
+    // bekommen, und ein Anker, der einen Deploy kostet, wird nicht gesetzt.
+    expect(capabilities.registrationAnchoring.operations).toContain("issueApiKey");
+    expect(capabilities.registrationAnchoring.operations).toContain("bindApiKey");
+  });
+
+  it("nennt einen Zustellnachweis als eigene Faehigkeit neben der Liveness", () => {
+    // Die beiden beantworten verschiedene Fragen: `liveness` sagt, was jemand eingestellt
+    // hat, `delivery` sagt, was geschehen ist. Sie zusammenzulegen war der Fehler, der
+    // drei laufende Kanten als Ausfall meldete.
+    const { capabilities } = cronvelloCapabilities();
+    expect(capabilities.deliveryEvidence.supported).toBe(true);
+  });
 });

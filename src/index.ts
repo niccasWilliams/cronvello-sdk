@@ -80,7 +80,13 @@ export {
 } from "./capabilities.js";
 export type {
   ExternalApp,
+  ExternalAppApiKey,
+  ExternalAppApiKeyList,
   ExternalAppAuthMethod,
+  ExternalAppBindApiKeyInput,
+  ExternalAppBoundApiKey,
+  ExternalAppIssueApiKeyInput,
+  ExternalAppIssuedApiKey,
   ExternalAppRegisterInput,
   ExternalAppRegisterResult,
   ExternalAppRegistration,

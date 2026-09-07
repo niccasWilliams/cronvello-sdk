@@ -197,6 +197,35 @@ export interface ExternalAppStatus {
   isLive: boolean;
   jobCount: number;
   /**
+   * ⭐ What actually arrives behind this registration — the only field in this response
+   * that *evidences* work rather than describing a setting.
+   *
+   * `isActive`, `isLive` and `liveness` all report what somebody configured. None of them
+   * can tell "self-managed and healthy" from "self-managed and dead". `lastDeliveryAt` can:
+   * it is the last real run of a task under this registration's job containers.
+   *
+   * Read it before you conclude an outage from a `false` anywhere else. One manager
+   * reported three registrations as down while their tasks were running in that same
+   * minute — it had inferred from `isActive: false` what only this field answers. The
+   * scheduler does not read `is_active` at all; that flag gates the catalog poll and the
+   * sync write paths.
+   *
+   * ⚠ Counts only what is *anchored* to this registration (`gf_jobs.app_id`). Containers
+   * created with a purely account-wide key carry no anchor and do not appear here —
+   * attributing them by label would be guesswork. Give the app a registration-bound key
+   * ({@link ExternalAppsResource.issueApiKey} / {@link ExternalAppsResource.bindApiKey})
+   * and its containers are booked from then on.
+   *
+   * ⚠ Older servers omit this field entirely. `undefined` means "this server cannot
+   * answer", never "nothing was delivered" — the two must not be collapsed.
+   */
+  delivery?: {
+    taskCount: number;
+    activeTaskCount: number;
+    /** ISO timestamp of the last real run, or `null` when nothing has ever run. */
+    lastDeliveryAt: string | null;
+  };
+  /**
    * How the app authenticates, or `null` when it is not registered.
    *
    * The four fields from here down describe the **state** of the app's credential, never
@@ -271,4 +300,60 @@ export interface ExternalAppRegistration extends ExternalAppStatus {
 export interface ExternalAppRegistrationList {
   count: number;
   registrations: ExternalAppRegistration[];
+}
+
+/**
+ * One /v1 key anchored to a registration. State and last use only — never the value.
+ *
+ * The anchor is what lets Cronvello book a job container to the registration that created
+ * it. Without one, `/v1` knows only the account, and one account holds many registrations.
+ */
+export interface ExternalAppApiKey {
+  id: number;
+  keyName: string;
+  /** The first characters of the key — enough to recognise it, never enough to use it. */
+  keyPrefix: string;
+  isActive: boolean;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+}
+
+/** The answer of {@link ExternalAppsResource.listApiKeys}. An empty list means: no anchor. */
+export interface ExternalAppApiKeyList {
+  count: number;
+  keys: ExternalAppApiKey[];
+}
+
+/** Options for {@link ExternalAppsResource.issueApiKey}. */
+export interface ExternalAppIssueApiKeyInput {
+  /** How the key is labelled in the account's key list. */
+  keyName: string;
+}
+
+/**
+ * Result of {@link ExternalAppsResource.issueApiKey}. `apiKey` is plaintext and appears
+ * here and nowhere else — the server keeps only an argon2 hash.
+ */
+export interface ExternalAppIssuedApiKey {
+  apiKey: string;
+  keyId: number;
+  keyPrefix: string;
+}
+
+/**
+ * Options for {@link ExternalAppsResource.bindApiKey}.
+ *
+ * ⛔ The numeric key id, deliberately not its name. Keys in the field tend to be named
+ * after their app, which makes reading a binding out of the name look safe — it is not.
+ */
+export interface ExternalAppBindApiKeyInput {
+  apiKeyId: number;
+}
+
+/** Result of {@link ExternalAppsResource.bindApiKey} — the key with its anchor. */
+export interface ExternalAppBoundApiKey {
+  id: number;
+  keyName: string;
+  keyPrefix: string;
+  externalAppId: number | null;
 }

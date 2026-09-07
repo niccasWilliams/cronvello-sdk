@@ -23,6 +23,11 @@ import { Transport, type FetchLike } from "../internal/http.js";
 import { CronvelloConfigError } from "../internal/errors.js";
 import { CRONVELLO_DEFAULT_BASE_URL } from "./client.js";
 import type {
+  ExternalAppApiKeyList,
+  ExternalAppBindApiKeyInput,
+  ExternalAppBoundApiKey,
+  ExternalAppIssueApiKeyInput,
+  ExternalAppIssuedApiKey,
   ExternalAppRegisterInput,
   ExternalAppRegisterResult,
   ExternalAppRegistrationList,
@@ -240,6 +245,72 @@ export class ExternalAppsResource {
   }
 
   /**
+   * The /v1 keys anchored to this registration — and therefore whether its job containers
+   * can be booked at all.
+   *
+   * ⭐ Why this matters: `/v1` is account-authenticated, and one account holds many
+   * registrations. A container created with a purely account-wide key lands without an
+   * anchor, so the registration reports `jobCount: 0` and an empty `delivery` while the app
+   * runs dozens of tasks — indistinguishable from a dead registration. An empty list here
+   * is exactly that situation, stated before it becomes a false outage.
+   *
+   * Values are never returned, only state and last use.
+   *
+   * Requires a Cronvello server from 2026-09-07 or later.
+   */
+  listApiKeys(registrationId: number): Promise<ExternalAppApiKeyList> {
+    assertRegistrationId(registrationId, "listApiKeys");
+    return this.t.request({ method: "GET", path: `/external-apps/service/api-keys/${registrationId}` });
+  }
+
+  /**
+   * Mint a /v1 key bound to this registration. The value is returned **once**.
+   *
+   * The way forward for every newly connected app: instead of an account-wide key it gets
+   * its own, and every container it creates via `sync()` is booked from the first second —
+   * there is nothing to backfill later.
+   *
+   * Rejects with 409 when the registration carries no account; a /v1 key is issued within one.
+   *
+   * Requires a Cronvello server from 2026-09-07 or later.
+   */
+  issueApiKey(registrationId: number, input: ExternalAppIssueApiKeyInput): Promise<ExternalAppIssuedApiKey> {
+    assertRegistrationId(registrationId, "issueApiKey");
+    return this.t.request({
+      method: "POST",
+      path: `/external-apps/service/api-keys/${registrationId}/issue`,
+      body: input,
+    });
+  }
+
+  /**
+   * Anchor an **existing** account key to this registration.
+   *
+   * The way for an existing estate. Keys already in the field are usually app keys in
+   * everything but the binding — they are literally named after their app. Binding gives
+   * them their anchor without any app receiving a new value: no deploy, no swap, no window
+   * in which something is half migrated. The next `sync()` adopts the containers that key
+   * already owns.
+   *
+   * ⛔ Takes the key's numeric id, deliberately not its name. The names *look* authoritative,
+   * which is precisely why reading a binding out of one would be guesswork rather than a
+   * record.
+   *
+   * Rejects with 409 when the key belongs to another account or is already bound elsewhere —
+   * silently re-pointing a bound key would hand one app another app's bookkeeping.
+   *
+   * Requires a Cronvello server from 2026-09-07 or later.
+   */
+  bindApiKey(registrationId: number, input: ExternalAppBindApiKeyInput): Promise<ExternalAppBoundApiKey> {
+    assertRegistrationId(registrationId, "bindApiKey");
+    return this.t.request({
+      method: "POST",
+      path: `/external-apps/service/api-keys/${registrationId}/bind`,
+      body: input,
+    });
+  }
+
+  /**
    * Delete a registration, cascading its jobs and tasks.
    *
    * ⚠ This one takes the **numeric** {@link ExternalApp.id}, not the string `appId` the other
@@ -293,6 +364,19 @@ function assertRegisterInput(input: ExternalAppRegisterInput): void {
 function assertAppId(appId: string, method: string): void {
   if (typeof appId !== "string" || !appId.trim()) {
     throw new CronvelloConfigError(`externalApps.${method}() requires a non-empty string appId.`);
+  }
+}
+
+/**
+ * The anchor methods address a registration by its NUMERIC id, never by its label — the
+ * whole point of an anchor is that it does not depend on a name. Passing the string appId
+ * here is the one mistake worth catching before it reaches the wire.
+ */
+function assertRegistrationId(id: number, method: string): void {
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new CronvelloConfigError(
+      `externalApps.${method}() takes the numeric registration id (ExternalApp.id), not the string appId — received ${JSON.stringify(id)}.`,
+    );
   }
 }
 

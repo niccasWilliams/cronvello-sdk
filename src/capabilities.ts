@@ -74,6 +74,23 @@ export type CronvelloCapabilities = {
      * Unschaerfe wie zuvor. Der Aufrufer prueft das Feld, er nimmt es nicht an.
      */
     livenessSemantics: CronvelloCapability;
+    /**
+     * Kann eine App einen Schluessel bekommen, der zu EINER Registrierung gehoert?
+     *
+     * `/v1` ist kontoauthentisiert, und ein Konto fuehrt mehrere Registrierungen. Ohne
+     * diese Faehigkeit landet jeder per `sync()` angelegte Job-Container ohne Zuordnung —
+     * die Registrierung meldet dauerhaft 0 Jobs, waehrend die App Dutzende Tasks faehrt,
+     * und ein Verwalter kann "selbstverwaltet und gesund" nicht von "tot" unterscheiden.
+     */
+    registrationAnchoring: CronvelloCapability;
+    /**
+     * Nennt der Status, was wirklich zugestellt wurde — statt nur, was eingestellt ist?
+     *
+     * `isActive`, `isLive` und `liveness` beschreiben alle drei eine Einstellung.
+     * `delivery.lastDeliveryAt` beschreibt ein Ereignis, und nur daran ist zu erkennen,
+     * ob hinter einer Registrierung Arbeit ankommt.
+     */
+    deliveryEvidence: CronvelloCapability;
   };
 };
 
@@ -181,6 +198,27 @@ export function cronvelloCapabilities(): CronvelloCapabilities {
         operations,
         ["status", "list"],
         "Ohne Statusauskunft gibt es nichts, dessen Bedeutung der Dienst erklaeren koennte.",
+      ),
+      // ⭐ Der Anker (Cronvello vom 07.09.2026). `/v1` ist kontoauthentisiert, ein Konto
+      // fuehrt aber mehrere Registrierungen. Ein per `sync()` angelegter Container landete
+      // deshalb ohne Zuordnung, und die Registrierung meldete `jobCount: 0`, waehrend die
+      // App Dutzende Tasks fuhr — von einer toten Registrierung nicht zu unterscheiden.
+      // Der Anker gehoert ins Credential: wer mit diesem Schluessel spricht, IST diese
+      // Registrierung.
+      registrationAnchoring: capabilityFrom(
+        operations,
+        ["listApiKeys", "issueApiKey", "bindApiKey"],
+        "Ohne registrierungsgebundenen Schluessel kann Cronvello einen per sync() angelegten "
+          + "Job-Container keiner Registrierung zuordnen. Sie meldet dann dauerhaft 0 Jobs, und "
+          + "'selbstverwaltet und gesund' ist von 'tot' nicht zu unterscheiden. Ueber den Namen "
+          + "zu matchen ist kein Ersatz, sondern der Fehler aus INC-000732.",
+      ),
+      // ⭐ Dieselbe Sache von der Leseseite: `delivery.lastDeliveryAt` ist die einzige
+      // Angabe im Vertrag, die Arbeit BELEGT statt eine Einstellung zu beschreiben.
+      deliveryEvidence: capabilityFrom(
+        operations,
+        ["status", "list"],
+        "Ohne Statusauskunft gibt es nichts, worin ein Zustellnachweis stehen koennte.",
       ),
 
       serverSideDryRun: {

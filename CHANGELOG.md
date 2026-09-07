@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.9.0 - 2026-09-07
+
+**A registration can now own a key, and the status can prove that work arrives.** Two halves of
+one problem: `/v1` is account-authenticated, and an account holds many registrations. A job
+container created through `sync()` therefore landed with no registration attached, so the
+registration reported `jobCount: 0` while the app was running dozens of tasks — a state
+indistinguishable from a dead registration. Measured on 2026-09-07: four containers with 68
+active tasks, none of them attributable, and a manager reporting three healthy connections as
+outages.
+
+- Add `externalApps.listApiKeys()`, `issueApiKey()` and `bindApiKey()`. The anchor lives in the
+  **credential**, not the payload: whoever calls with this key *is* that registration, so nothing
+  is claimed and nothing is compared. `issueApiKey` is the path for newly connected apps;
+  `bindApiKey` anchors a key that is already in the field, so an existing estate needs no rollout
+  — no deploy, no swap, no half-migrated window.
+- ⛔ Matching containers to registrations by `appName` would have been the obvious alternative and
+  is the trap: on that same data it would have filed three containers named "Williams … Jobs"
+  under the registration `APP_WILLIAMS`, while the audit trail shows they were created by the
+  NODE QR, NODE_BILL and NODE-SHOP keys.
+- Add `ExternalAppStatus.delivery` — `taskCount`, `activeTaskCount` and `lastDeliveryAt`. Every
+  other field of that response describes a *setting*; this one describes what *happened*, and it
+  is the only way to tell "self-managed and healthy" from "self-managed and dead". The field is
+  optional: an older server omits it, and `undefined` must not be read as "nothing delivered".
+- `cronvelloCapabilities()` reports the two new capabilities `registrationAnchoring` and
+  `deliveryEvidence`.
+
+Requires a Cronvello server from 2026-09-07 or later for the new routes and for `delivery`.
+
 ## 0.7.0 - 2026-09-07
 
 - Add `externalApps.list()`: every registration this Cronvello instance holds, each with its
