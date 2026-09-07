@@ -64,6 +64,16 @@ export type CronvelloCapabilities = {
     pointerAddressing: CronvelloCapability;
     /** Ein serverseitiger Probelauf, der schreibt *als ob*, aber nichts aendert. */
     serverSideDryRun: CronvelloCapability;
+    /**
+     * Der Client reicht `liveness` aus der Statusauskunft durch — `retired`, `inactive` und
+     * `revoked` sind dort keine Ausfaelle.
+     *
+     * ⚠ Wie bei jeder Angabe hier gilt: das ist eine Aussage ueber den CLIENT, nicht ueber
+     * die laufende Gegenstelle. Ein aelterer Server laesst das Feld weg, dann ist
+     * `status.liveness` schlicht `undefined` — und dann bleibt `isLive`, mit derselben
+     * Unschaerfe wie zuvor. Der Aufrufer prueft das Feld, er nimmt es nicht an.
+     */
+    livenessSemantics: CronvelloCapability;
   };
 };
 
@@ -123,24 +133,27 @@ export function cronvelloCapabilities(): CronvelloCapabilities {
         ["rotateKey"],
         "Ohne Erneuerung ist ein einmal ausgegebener Token dauerhaft.",
       ),
-      rotationGracePeriod: {
-        supported: false,
-        operations: [],
-        reason:
-          "`rotateKey` ist ein harter Schnitt: der neue Token gilt sofort, der alte hoert im "
-          + "selben Moment auf zu gelten. Wer rotiert, muss den neuen Wert in der Umgebung der "
-          + "App stehen haben, BEVOR er rotiert — sonst laeuft sie bis zum Ausrollen ins Leere. "
-          + "node-shop kann das anders (`gracePeriodHours`), Cronvello heute nicht.",
-      },
-      clientRevocation: {
-        supported: false,
-        operations: [],
-        reason:
-          "Es gibt keinen Widerruf, der die Registrierung stehen laesst. Ein Zugang wird "
-          + "entzogen, indem die App geloescht wird (`delete`, mitsamt ihren Jobs und Tasks) "
-          + "oder indem `rotateKey` den alten Wert wertlos macht. Beides ist mehr, als ein "
-          + "Verwalter will, der nur einen Schluessel sperren moechte.",
-      },
+      // ⭐ Seit @cronvello/sdk 0.8.0 / Cronvello vom 07.09.2026 keine Luecke mehr. Die
+      // Rotation legt den abgeloesten Token mit Frist beiseite (`gracePeriodHours`, Default
+      // 2 h), `rollbackKey` holt ihn zurueck. Vorher war jede Rotation ein Schritt ohne
+      // Rueckweg: landete der neue Wert nicht, war die Kante tot und der alte Wert weg.
+      rotationGracePeriod: capabilityFrom(
+        operations,
+        ["rotateKey", "rollbackKey"],
+        "Ohne Frist und Rueckholung ist jede Rotation ein Schritt ohne Rueckweg: landet der "
+          + "neue Wert bei der App nicht, laeuft sie ins Leere, und der alte Wert ist weg.",
+      ),
+      // ⭐ Ebenfalls seit 0.8.0. `revokeKey` nimmt den Schluessel und laesst die
+      // Registrierung stehen — der Unterschied zu `delete`, das Jobs und Tasks mitnimmt.
+      // Ein Zugang, den man nur unter Verlust der Beziehung entziehen kann, wird nicht
+      // entzogen; genau so bleiben kompromittierte Schluessel gueltig.
+      clientRevocation: capabilityFrom(
+        operations,
+        ["revokeKey"],
+        "Ohne Widerruf bleibt nur `delete` (mitsamt Jobs und Tasks) oder `rotateKey`, das den "
+          + "alten Wert wertlos macht. Beides ist mehr, als ein Verwalter will, der nur einen "
+          + "Schluessel sperren moechte — also sperrt er ihn nicht.",
+      ),
       peerStatus: capabilityFrom(
         operations,
         ["status"],
@@ -159,6 +172,17 @@ export function cronvelloCapabilities(): CronvelloCapabilities {
         "Ohne den Zeiger bleibt nur das Etikett, und ein Etikett kann umbenannt werden — dann "
           + "sieht eine laufende Registrierung aus wie eine geloeschte (INC-000732).",
       ),
+      // ⭐ Der Grund fuer diese Faehigkeit: `isLive` misst den Katalog-Sync, nicht ob die
+      // Jobs laufen. Eine stillgelegte Registrierung steht dauerhaft auf false — richtig,
+      // dort SOLL nichts gepollt werden — und wurde von einem Verwalter als rotes Abzeichen
+      // gezeigt, waehrend derselbe Dienst 18.696 von 18.711 Laeufen in 24 h auf HTTP 200
+      // hatte. Ein Verwalter, der `liveness` liest, faellt darauf nicht mehr herein.
+      livenessSemantics: capabilityFrom(
+        operations,
+        ["status", "list"],
+        "Ohne Statusauskunft gibt es nichts, dessen Bedeutung der Dienst erklaeren koennte.",
+      ),
+
       serverSideDryRun: {
         supported: false,
         operations: [],

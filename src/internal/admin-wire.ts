@@ -134,9 +134,47 @@ export interface ExternalAppRegisterResult extends ExternalApp {
   generatedApiKey: string | null;
 }
 
-/** Result of a key rotation. `newApiKey` is plaintext and returned exactly once. */
+/**
+ * Result of a key rotation. `newApiKey` is plaintext and returned exactly once.
+ *
+ * `previousApiKeyExpiresAt` is the end of the grace period during which the replaced token
+ * can still be restored with {@link ExternalAppsResource.rollbackKey}. It is `null` when the
+ * app had no token to replace, or when the caller asked for `gracePeriodHours: 0`.
+ */
 export interface ExternalAppRotateKeyResult extends ExternalApp {
   newApiKey: string;
+  previousApiKeyExpiresAt: string | null;
+}
+
+/** Options for {@link ExternalAppsResource.rotateKey}. */
+export interface ExternalAppRotateKeyInput {
+  /**
+   * How long the replaced token stays restorable. Server default is 2 hours; `0` turns the
+   * rotation back into a hard cut — which is a legitimate choice, just an explicit one.
+   * Server-enforced range: 0 – 168.
+   */
+  gracePeriodHours?: number;
+}
+
+/** Result of {@link ExternalAppsResource.rollbackKey}. `restoredApiKey` is plaintext. */
+export interface ExternalAppRollbackKeyResult extends ExternalApp {
+  restoredApiKey: string;
+}
+
+/** Options for {@link ExternalAppsResource.revokeKey}. */
+export interface ExternalAppRevokeKeyInput {
+  /** Why the credential was withdrawn. Shows up in the status as the reason. Max 64 chars. */
+  reason?: string;
+}
+
+/**
+ * Result of {@link ExternalAppsResource.revokeKey}.
+ *
+ * `tasksCleared` counts the task rows whose stored copy of the token was emptied along with
+ * it — a revoked value left lying in task rows would be a secret nobody watches any more.
+ */
+export interface ExternalAppRevokeKeyResult extends ExternalApp {
+  tasksCleared: number;
 }
 
 /** Registration status for one app, addressed either by its string `appId` or by its numeric id. */
@@ -177,6 +215,43 @@ export interface ExternalAppStatus {
   hasOAuthClientSecret: boolean;
   /** When the server last checked the app's reachability. `null` when never checked. */
   lastHealthCheckAt: string | null;
+  /**
+   * What {@link isLive} actually means for this row.
+   *
+   * ⭐ Read this instead of `isLive` when you paint a status badge. `is_live` is the result of
+   * the hourly catalog poll, not a statement about whether the app's jobs run. A retired or
+   * deactivated registration sits at `false` permanently — correctly, because nothing is
+   * supposed to be polled there — and a caller that turns that into a red badge reports
+   * healthy things as outages. One operator's landscape did exactly that while the same
+   * instance was running 18,696 of 18,711 job executions on HTTP 200.
+   *
+   * Only `unreachable` is a fault. Older servers omit the field entirely.
+   */
+  liveness?: {
+    state: "live" | "unreachable" | "retired" | "inactive" | "not_monitored" | "revoked";
+    detail: string;
+  };
+  /**
+   * One fingerprint per secret this registration holds — never a value. Lets a caller locate
+   * the value in the app's runtime environment by equality instead of guessing a variable
+   * name. During a rotation grace period two entries stand side by side, and that is how a
+   * caller can see that the other side is still on the old value instead of assuming it.
+   *
+   * Older servers omit the field.
+   */
+  credentialFingerprints?: Array<{
+    role: "api_key" | "previous_api_key" | "oauth_client_secret";
+    fingerprint: string;
+    /** `false` = replaced, still restorable while the grace period runs. */
+    current: boolean;
+    expiresAt: string | null;
+  }>;
+  /**
+   * Set when the credential was withdrawn with {@link ExternalAppsResource.revokeKey}. Without
+   * it an empty fingerprint list reads as "something is missing" rather than "someone decided".
+   */
+  credentialRevokedAt?: string | null;
+  credentialRevokedReason?: string | null;
 }
 
 /**

@@ -39,9 +39,26 @@ describe("cronvelloCapabilities", () => {
     // Die Faehigkeit, ohne die ein Verwalter nur bestaetigen kann, was er ohnehin glaubt.
     expect(capabilities.registrationListing.supported).toBe(true);
 
-    // Bewusst false, jeweils mit Grund: rotateKey ist ein harter Schnitt, und es gibt
-    // keinen Widerruf, der die Registrierung stehen laesst.
-    expect(capabilities.rotationGracePeriod.supported).toBe(false);
-    expect(capabilities.clientRevocation.supported).toBe(false);
+    // ⭐ Seit 0.8.0 keine Luecken mehr, und das ist die Zeile, die es festhaelt: die
+    // Rotation legt den abgeloesten Token mit Frist beiseite und `rollbackKey` holt ihn
+    // zurueck; `revokeKey` nimmt den Schluessel und laesst die Registrierung stehen. Faellt
+    // eine der beiden Methoden wieder weg, faellt hier auch der Bericht — und nicht erst
+    // ein Aufruf in Produktion.
+    expect(capabilities.rotationGracePeriod.supported).toBe(true);
+    expect(capabilities.rotationGracePeriod.operations).toContain("rollbackKey");
+    expect(capabilities.clientRevocation.supported).toBe(true);
+    expect(capabilities.clientRevocation.operations).toContain("revokeKey");
+
+    // `delete` bleibt daneben bestehen und ist etwas anderes: es nimmt Jobs und Tasks mit.
+    // Genau weil beides frueher derselbe Weg war, wurde nicht widerrufen.
+    expect(capabilities.clientManagement.operations).toContain("delete");
+  });
+
+  it("erklaert, was das Liveness-Abzeichen bedeutet, statt es einem Boolean zu ueberlassen", () => {
+    // is_live misst den Katalog-Sync. Eine stillgelegte Registrierung steht dauerhaft auf
+    // false, obwohl dort nichts laufen soll — als rotes Abzeichen gelesen meldet das
+    // Gesundes als Ausfall.
+    const { capabilities } = cronvelloCapabilities();
+    expect(capabilities.livenessSemantics.supported).toBe(true);
   });
 });

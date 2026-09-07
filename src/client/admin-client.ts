@@ -26,6 +26,10 @@ import type {
   ExternalAppRegisterInput,
   ExternalAppRegisterResult,
   ExternalAppRegistrationList,
+  ExternalAppRevokeKeyInput,
+  ExternalAppRevokeKeyResult,
+  ExternalAppRollbackKeyResult,
+  ExternalAppRotateKeyInput,
   ExternalAppRotateKeyResult,
   ExternalAppStatus,
 } from "../internal/admin-wire.js";
@@ -170,13 +174,69 @@ export class ExternalAppsResource {
 
   /**
    * Mint a fresh per-app token, by string `appId`. The new token is returned once as `newApiKey`
-   * and must be written into the app's environment — the previous one stops working.
+   * and must be written into the app's environment.
    *
-   * Use this for drift recovery when the current token is no longer known.
+   * The token it replaces is kept restorable until `previousApiKeyExpiresAt` (server default:
+   * 2 hours) — see {@link rollbackKey}. Before that grace period existed, rotation was a hard
+   * cut: the replaced value was gone the moment the call returned, so a rollout that did not
+   * land left the edge dead with no way back. Pass `gracePeriodHours: 0` to get that behaviour
+   * deliberately.
+   *
+   * Use this for drift recovery when the current token is no longer known. A rotation also
+   * clears a previous revocation — a fresh credential means the cause was addressed.
+   *
+   * `gracePeriodHours` requires a Cronvello server from 2026-09-07 or later; an older one
+   * ignores the body and rotates hard.
    */
-  rotateKey(appId: string): Promise<ExternalAppRotateKeyResult> {
+  rotateKey(appId: string, input: ExternalAppRotateKeyInput = {}): Promise<ExternalAppRotateKeyResult> {
     assertAppId(appId, "rotateKey");
-    return this.t.request({ method: "POST", path: `/external-apps/service/rotate-key/${enc(appId)}` });
+    return this.t.request({
+      method: "POST",
+      path: `/external-apps/service/rotate-key/${enc(appId)}`,
+      body: input,
+    });
+  }
+
+  /**
+   * Put the token that the last rotation replaced back in force, while its grace period runs.
+   *
+   * The case this exists for is ordinary: you rotated, and the new value never reached the
+   * other side — a hanging deploy, an env that was not written, a rollout that broke off
+   * halfway. Without a way back the only option is to chase the rollout while the edge lies
+   * dead.
+   *
+   * Rejects with a 409 when there is nothing to restore or the grace period has ended: an
+   * expired credential is a dead record, and putting it back in use would be the opposite of
+   * rotating. Rotate again instead.
+   *
+   * Requires a Cronvello server from 2026-09-07 or later.
+   */
+  rollbackKey(appId: string): Promise<ExternalAppRollbackKeyResult> {
+    assertAppId(appId, "rollbackKey");
+    return this.t.request({ method: "POST", path: `/external-apps/service/rollback-key/${enc(appId)}` });
+  }
+
+  /**
+   * Withdraw the app's credential and leave the registration standing.
+   *
+   * ⚠ This is the method {@link delete} is **not**. Deleting cascades onto jobs and tasks, so
+   * "withdraw the key" and "end the relationship" could not be told apart, and a caller who
+   * only wanted the first did nothing at all — which is how compromised credentials stay
+   * valid. This takes the token out of the row, out of the grace period and out of every task
+   * that still carries it, and leaves the registration, its jobs and its history where they are.
+   *
+   * The status then reports `liveness.state = "revoked"` with the reason. The way back is
+   * {@link register} or {@link rotateKey} with a fresh credential.
+   *
+   * Requires a Cronvello server from 2026-09-07 or later.
+   */
+  revokeKey(appId: string, input: ExternalAppRevokeKeyInput = {}): Promise<ExternalAppRevokeKeyResult> {
+    assertAppId(appId, "revokeKey");
+    return this.t.request({
+      method: "POST",
+      path: `/external-apps/service/revoke-key/${enc(appId)}`,
+      body: input,
+    });
   }
 
   /**
