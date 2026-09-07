@@ -356,6 +356,8 @@ export interface ExternalAppBoundApiKey {
   keyName: string;
   keyPrefix: string;
   externalAppId: number | null;
+  /** Containers this binding booked to the registration on the spot. */
+  adoptedJobIds: string[];
 }
 
 /**
@@ -378,6 +380,13 @@ export interface ExternalAppAnchorReconcileResult {
     appId: string;
     /** The chain that carried this binding, in words — readable without the database. */
     evidence: string;
+    /**
+     * Containers booked to the registration by this call, rather than at the app's next
+     * `sync()`. An app that rarely restarts rarely syncs; waiting for it would leave the
+     * registration reporting 0 jobs for weeks after the anchor was already in place — the
+     * very state the anchor exists to end.
+     */
+    adoptedJobIds: string[];
   }>;
   ambiguous: Array<{
     apiKeyId: number;

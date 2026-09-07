@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0 - 2026-09-07
+
+- `bindApiKey()` and `reconcileApiKeyAnchors({ apply: true })` now book the key's existing
+  containers to the registration immediately, and report them as `adoptedJobIds`. Previously
+  the anchor only took effect at the app's next `sync()` — and an app that rarely restarts
+  rarely syncs, so the registration would have kept reporting 0 jobs for weeks after the
+  anchor was already in place. A repair whose effect depends on somebody else's deploy is
+  not a repair.
+
 ## 0.10.0 - 2026-09-07
 
 - Add `externalApps.reconcileApiKeyAnchors()`. The caller cannot work out which registration an
