@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.0 - 2026-09-07
+
+- `reconcileApiKeyAnchors()` now converges: it also books the containers of keys that
+  *already* carry an anchor, reported as `adoptedForAnchored`. A key can hold its anchor
+  while its containers do not — the anchor was set before this catch-up existed, or a
+  container predates the binding. A reconciler that only catches up the first step leaves
+  standing exactly the state it claims to remove.
+
 ## 0.11.0 - 2026-09-07
 
 - `bindApiKey()` and `reconcileApiKeyAnchors({ apply: true })` now book the key's existing

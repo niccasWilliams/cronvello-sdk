@@ -373,6 +373,15 @@ export interface ExternalAppAnchorReconcileResult {
   checked: number;
   /** How many keys already carried an anchor and were left alone. */
   alreadyAnchored: number;
+  /**
+   * Containers booked to an already-anchored key's registration.
+   *
+   * A key can carry its anchor while its containers still do not — the anchor was set
+   * before this catch-up existed, or a container predates the binding. A reconciler that
+   * only catches up the *first* step does not converge; it leaves standing exactly the
+   * state it claims to remove.
+   */
+  adoptedForAnchored: Array<{ apiKeyId: number; registrationId: number; jobIds: string[] }>;
   bound: Array<{
     apiKeyId: number;
     keyName: string;

@@ -1,6 +1,6 @@
 {
   "name": "@cronvello/sdk",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Code-first cron jobs for Cronvello. Define jobs in your code, the SDK syncs them to https://api.cronvello.com and runs them — no dashboard required.",
   "keywords": [
     "cron",
