@@ -178,3 +178,22 @@ export interface ExternalAppStatus {
   /** When the server last checked the app's reachability. `null` when never checked. */
   lastHealthCheckAt: string | null;
 }
+
+/**
+ * One row of {@link ExternalAppsResource.list} — the same projection as
+ * {@link ExternalAppStatus}, plus the numeric pointer.
+ *
+ * The pointer is what makes a listing usable. Matching rows by their label is what let a
+ * renamed app look deleted; a list that only carried labels would hand the caller the same
+ * trap in bulk.
+ */
+export interface ExternalAppRegistration extends ExternalAppStatus {
+  /** The numeric id to address this row with from now on — the same one `register()` returns. */
+  registrationId: number;
+}
+
+/** The answer of {@link ExternalAppsResource.list}. */
+export interface ExternalAppRegistrationList {
+  count: number;
+  registrations: ExternalAppRegistration[];
+}

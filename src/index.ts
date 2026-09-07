@@ -70,11 +70,21 @@ export {
   CronvelloAdminClient,
   type CronvelloAdminClientOptions,
 } from "./client/admin-client.js";
+
+// ── Faehigkeitsbericht ──────────────────────────────────────────────
+// Was dieser Dienst einem Verwalter anbietet, aus der Methodenliste des Clients gelesen.
+export {
+  cronvelloCapabilities,
+  type CronvelloCapabilities,
+  type CronvelloCapability,
+} from "./capabilities.js";
 export type {
   ExternalApp,
   ExternalAppAuthMethod,
   ExternalAppRegisterInput,
   ExternalAppRegisterResult,
+  ExternalAppRegistration,
+  ExternalAppRegistrationList,
   ExternalAppRotateKeyResult,
   ExternalAppStatus,
   CatalogRetiredReason,

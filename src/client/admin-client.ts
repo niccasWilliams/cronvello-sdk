@@ -25,6 +25,7 @@ import { CRONVELLO_DEFAULT_BASE_URL } from "./client.js";
 import type {
   ExternalAppRegisterInput,
   ExternalAppRegisterResult,
+  ExternalAppRegistrationList,
   ExternalAppRotateKeyResult,
   ExternalAppStatus,
 } from "../internal/admin-wire.js";
@@ -94,7 +95,12 @@ export class CronvelloAdminClient {
   }
 }
 
-class ExternalAppsResource {
+/**
+ * Der Werkzeugkasten des Verwalters, als Klasse und nicht als Objektliteral — damit
+ * {@link cronvelloCapabilities} die Methodenliste vom Prototyp lesen kann statt aus einer
+ * gepflegten Aufzaehlung. Eine Aufzaehlung veraltet still; ein Prototyp nicht.
+ */
+export class ExternalAppsResource {
   constructor(private readonly t: Transport) {}
 
   /**
@@ -107,6 +113,24 @@ class ExternalAppsResource {
   register(input: ExternalAppRegisterInput): Promise<ExternalAppRegisterResult> {
     assertRegisterInput(input);
     return this.t.request({ method: "POST", path: "/external-apps/service/register", body: input });
+  }
+
+  /**
+   * Every registration this Cronvello instance holds, each with its numeric `registrationId`.
+   *
+   * ⭐ The method the other four could not replace: they all answer about an app you already
+   * name, so a caller's picture of Cronvello was only ever as complete as its own bookkeeping.
+   * One operator held 3 of 8 registrations and had no way to notice — a registration it had
+   * never written down looked exactly like one that did not exist. This is the read that turns
+   * that assumption into a comparison.
+   *
+   * Credential values are never returned, only their state — same rule as {@link status}.
+   *
+   * Requires a Cronvello server from 2026-09-07 or later; an older one answers 404, surfacing
+   * as a `CronvelloApiError` with `isNotFound`.
+   */
+  list(): Promise<ExternalAppRegistrationList> {
+    return this.t.request({ method: "GET", path: "/external-apps/service/registrations" });
   }
 
   /**

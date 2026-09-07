@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0 - 2026-09-07
+
+- Add `externalApps.list()`: every registration this Cronvello instance holds, each with its
+  numeric `registrationId`. The other four admin methods all answer about an app you already
+  name, so a caller's picture was only ever as complete as its own bookkeeping — one operator
+  held 3 of 8 registrations and had no way to notice. Requires a Cronvello server from
+  2026-09-07 or later.
+- Add `cronvelloCapabilities()`: what this service offers a connection manager, read from the
+  admin client's own method table rather than a maintained list. Capabilities that are absent
+  name the reason instead of quietly reading `false`.
+- Export `ExternalAppsResource` so the capability report can read its prototype.
+
 All notable changes to `@cronvello/sdk` are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/) (pre-1.0: minor-feature additions ship as patch releases).
 

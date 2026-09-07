@@ -1,5 +1,7 @@
 import { defineConfig } from "tsup";
 
+import { version } from "./package.json";
+
 export default defineConfig({
   entry: {
     index: "src/index.ts",
@@ -11,6 +13,9 @@ export default defineConfig({
   format: ["esm", "cjs"],
   // The CLI ships only as ESM (it's the `bin`); no .d.ts needed for it.
   dts: { entry: { index: "src/index.ts", express: "src/express.ts", next: "src/next.ts", dev: "src/dev.ts" } },
+  // Der Faehigkeitsbericht nennt seine eigene Version. Zur Bauzeit ersetzt, damit kein
+  // package.json zur Laufzeit gelesen werden muss (das Paket hat bewusst keine Abhaengigkeiten).
+  define: { __CRONVELLO_SDK_VERSION__: JSON.stringify(version) },
   clean: true,
   sourcemap: true,
   treeshake: true,
