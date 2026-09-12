@@ -3,6 +3,10 @@
 A small, local Cronvello demo: a successful job, a deliberate failure followed by
 a retry, and a job that takes longer than its interval. No account or API key.
 
+![Cronvello local dashboard showing a successful retry and an overlapping run being skipped](./dashboard.png)
+
+Actual local demo output with synthetic jobs.
+
 Requires Node.js 20 or newer. The JavaScript configuration runs without a TypeScript loader.
 
 ## Run it
