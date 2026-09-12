@@ -16,8 +16,8 @@ Three steps, no signup, nothing leaves your machine:
 npm i @cronvello/sdk
 ```
 
-```ts
-// cronvello.config.ts
+```js
+// cronvello.config.mjs
 import { defineCronvello, every } from "@cronvello/sdk";
 
 export default defineCronvello({
@@ -57,6 +57,12 @@ the dispatch handler) need credentials.
 - ✅ **A real CLI** — `npx cronvello dev | preview | whoami | list | runs | status | sync`.
 
 ---
+
+## A runnable failure-and-recovery demo
+
+Try the [local demo](https://github.com/niccasWilliams/cronvello-sdk/tree/main/examples/local): three jobs show a successful run, a deliberate failure
+with retry, and overlap protection in the local dashboard. It uses plain JavaScript, needs
+no account, and does not call external services.
 
 ## The idea (hosted)
 
