@@ -41,7 +41,7 @@ Run the **Publish @cronvello/sdk** workflow manually in GitHub Actions. Manual r
 ## Local release check
 
 ```bash
-npm install --no-package-lock --no-audit --no-fund
+npm ci --no-audit --no-fund
 npm run check
 npm pack --dry-run
 ```

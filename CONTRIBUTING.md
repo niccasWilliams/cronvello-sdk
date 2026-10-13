@@ -7,7 +7,7 @@ Bug reports, focused feature proposals, documentation fixes, and pull requests a
 ```bash
 git clone https://github.com/niccasWilliams/cronvello-sdk.git
 cd cronvello-sdk
-npm install --no-package-lock --no-audit --no-fund
+npm ci --no-audit --no-fund
 npm run check
 ```
 
