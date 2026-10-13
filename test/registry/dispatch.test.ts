@@ -158,3 +158,56 @@ describe("dispatch — async_callback", () => {
     expect(isAsync).toBe(true);
   });
 });
+
+describe("dispatch — callback delivery retries", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+  async function deliver(responses: Array<"network" | number>) {
+    vi.useFakeTimers();
+    let calls = 0;
+    vi.stubGlobal("fetch", async () => {
+      const next = responses[Math.min(calls++, responses.length - 1)];
+      if (next === "network") throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } });
+      return { ok: next >= 200 && next < 300, status: next };
+    });
+    const errors: unknown[][] = [];
+    const warns: unknown[][] = [];
+    const d = dispatcher(
+      { digest: { schedule: "* * * * *", handler: async () => "ok" } },
+      { error: (...a: unknown[]) => { errors.push(a); }, warn: (...a: unknown[]) => { warns.push(a); } },
+    );
+    let work: Promise<unknown> | undefined;
+    await d.handle(req({
+      rawBody: JSON.stringify({ job: "digest", _callback: { url: "https://x/cb", runId: "run_r" } }),
+      waitUntil: (p) => { work = p; },
+    }));
+    let done = false;
+    void work!.then(() => { done = true; });
+    while (!done) await vi.advanceTimersByTimeAsync(1_000);
+    return { calls, errors, warns };
+  }
+
+  it("retries a network failure and stays quiet once delivered", async () => {
+    const r = await deliver(["network", "network", 200]);
+    expect(r.calls).toBe(3);
+    expect(r.errors).toEqual([]);
+  });
+
+  it("retries 5xx and 429", async () => {
+    expect((await deliver([503, 429, 200])).calls).toBe(3);
+  });
+
+  it("does not retry other 4xx", async () => {
+    const r = await deliver([401]);
+    expect(r.calls).toBe(1);
+    expect(r.warns).toHaveLength(1);
+    expect(r.errors).toEqual([]);
+  });
+
+  it("logs one error with the network code after the last attempt", async () => {
+    const r = await deliver(["network"]);
+    expect(r.calls).toBe(4);
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0]![1]).toMatchObject({ error: "fetch failed (ECONNRESET)", attempts: 4 });
+  });
+});

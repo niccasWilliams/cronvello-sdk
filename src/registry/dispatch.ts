@@ -215,23 +215,52 @@ async function runAndReportCallback(
     };
   }
 
+  const bodyStr = JSON.stringify(payload);
+  const header = callback.expectedSignatureHeader || "X-Webhook-Signature";
+  let signature: string;
   try {
-    const bodyStr = JSON.stringify(payload);
-    const header = callback.expectedSignatureHeader || "X-Webhook-Signature";
-    const signature = await signHmacSha256(bodyStr, secret);
-    const res = await fetch(callback.url, {
-      method: "POST",
-      headers: { "content-type": "application/json", [header]: signature },
-      body: bodyStr,
-    });
-    if (!res.ok) {
-      log.warn?.(`[cronvello] callback POST for job '${job.key}' returned ${res.status}`);
-    }
+    signature = await signHmacSha256(bodyStr, secret);
   } catch (err) {
-    log.error?.(`[cronvello] failed to deliver callback for job '${job.key}'`, {
-      error: err instanceof Error ? err.message : String(err),
-    });
+    log.error?.(`[cronvello] failed to deliver callback for job '${job.key}'`, { error: describeError(err) });
+    return;
   }
+
+  // A short network blip must not cost a run that already succeeded: Cronvello would mark it
+  // timed out after the confirmation window. Retrying is safe, the server deduplicates on runId.
+  for (let attempt = 0; ; attempt++) {
+    let failure: { error?: string; status?: number };
+    try {
+      const res = await fetch(callback.url, {
+        method: "POST",
+        headers: { "content-type": "application/json", [header]: signature },
+        body: bodyStr,
+      });
+      if (res.ok) return;
+      if (res.status !== 429 && res.status < 500) {
+        log.warn?.(`[cronvello] callback POST for job '${job.key}' returned ${res.status}`);
+        return;
+      }
+      failure = { status: res.status };
+    } catch (err) {
+      failure = { error: describeError(err) };
+    }
+    if (attempt >= CALLBACK_RETRY_DELAYS_MS.length) {
+      log.error?.(`[cronvello] failed to deliver callback for job '${job.key}'`, { ...failure, attempts: attempt + 1 });
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, CALLBACK_RETRY_DELAYS_MS[attempt]));
+  }
+}
+
+/** Waits between callback attempts: 4 tries within ~15 s, well inside Cronvello's confirmation window. */
+const CALLBACK_RETRY_DELAYS_MS = [1_000, 4_000, 10_000];
+
+/** `fetch failed` alone hides the reason; undici puts the network code on `cause`. */
+function describeError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const cause = (err as { cause?: unknown }).cause;
+  const code = cause && typeof cause === "object" ? (cause as { code?: unknown }).code : undefined;
+  return typeof code === "string" ? `${err.message} (${code})` : err.message;
 }
 
 /** Run a lifecycle hook, swallowing any error it throws so observability never breaks a job. */

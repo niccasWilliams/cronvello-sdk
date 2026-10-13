@@ -114,13 +114,13 @@ describe("dispatch — callback delivery failures", () => {
     return { d, logs };
   }
 
-  it("logs a warning when the callback endpoint returns non-2xx", async () => {
-    vi.stubGlobal("fetch", async () => ({ ok: false, status: 503 }));
+  it("logs a warning when the callback endpoint rejects with 4xx", async () => {
+    vi.stubGlobal("fetch", async () => ({ ok: false, status: 404 }));
     const { d, logs } = asyncDispatcher(async () => "ok");
     let work: Promise<unknown> | undefined;
     await d.handle({ method: "POST", authorization: `Bearer ${SECRET}`, headers: {}, rawBody: JSON.stringify({ job: "digest", _callback: { url: "https://x/cb", runId: "r" } }), waitUntil: (p) => { work = p; } });
     await work;
-    expect(logs.some((l) => l.startsWith("warn:") && l.includes("503"))).toBe(true);
+    expect(logs.some((l) => l.startsWith("warn:") && l.includes("404"))).toBe(true);
   });
 
   it("logs an error when callback delivery throws", async () => {
@@ -128,7 +128,10 @@ describe("dispatch — callback delivery failures", () => {
     const { d, logs } = asyncDispatcher(async () => "ok");
     let work: Promise<unknown> | undefined;
     await d.handle({ method: "POST", authorization: `Bearer ${SECRET}`, headers: {}, rawBody: JSON.stringify({ job: "digest", _callback: { url: "https://x/cb", runId: "r" } }), waitUntil: (p) => { work = p; } });
-    await work;
+    // Delivery is retried with backoff before it gives up.
+    let done = false;
+    void work!.then(() => { done = true; });
+    while (!done) await vi.advanceTimersByTimeAsync(1_000);
     expect(logs.some((l) => l.startsWith("error:"))).toBe(true);
   });
 

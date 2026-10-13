@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.1 - 2026-10-13
+
+- The async callback is retried on network errors, 5xx and 429 (4 attempts within about 15 s)
+  instead of being sent once. A short network blip used to turn a successful run into a
+  timed-out one after the confirmation window. Retries are safe: Cronvello deduplicates on
+  `runId`. The final error now names the network code (`fetch failed (ECONNRESET)`).
+
 ## 0.12.0 - 2026-09-07
 
 - `reconcileApiKeyAnchors()` now converges: it also books the containers of keys that
