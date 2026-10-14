@@ -92,7 +92,11 @@ export function createDispatcher(state: DispatcherState): Dispatcher {
     } catch (err) {
       const durationMs = Date.now() - startedAt;
       const error = err instanceof Error ? err : new Error(String(err));
-      log.error?.(`[cronvello] job '${job.key}' failed: ${error.message}`, { error: error.message });
+      // With an onJobError hook the app reports the failure itself (with stack); a second error
+      // line here turned one red run into two log incidents. Without a hook this stays the report.
+      const line = `[cronvello] job '${job.key}' failed: ${error.message}`;
+      if (hooks?.onJobError) log.debug?.(line, { error: error.message });
+      else log.error?.(line, { error: error.message });
       await safeHook(() => hooks?.onJobError?.({ key: job.key, source: ctx.source, durationMs, error }), log);
       throw error;
     }

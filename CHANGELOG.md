@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.3 - 2026-10-15
+
+- A failing job is reported once. With an `onJobError` hook the app owns the failure report,
+  so the dispatcher logs its own `job '<key>' failed: …` line at debug instead of error. Before,
+  one red run produced an error line from the SDK and one from the hook, and the app's log
+  collector opened two incidents for the same event. Without a hook nothing changes.
+
 ## 0.12.2 - 2026-10-14
 
 - Caught callback retries are no longer silent. Each failed attempt is logged as a warning

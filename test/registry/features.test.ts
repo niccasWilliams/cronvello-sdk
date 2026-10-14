@@ -73,6 +73,22 @@ describe("lifecycle hooks", () => {
     expect(events).toEqual(["start:digest:local", "error:digest:nope"]);
   });
 
+  it("leaves the failure report to onJobError instead of logging a second error", async () => {
+    const { hooks } = spyHooks();
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const app = defineCronvello(baseConfig({ hooks, logger, jobs: { digest: { schedule: "0 8 * * *", handler: async () => { throw new Error("nope"); } } } }));
+    await expect(app.trigger("digest")).rejects.toThrow("nope");
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith("[cronvello] job 'digest' failed: nope", { error: "nope" });
+  });
+
+  it("logs the failure as error when no onJobError hook is set", async () => {
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const app = defineCronvello(baseConfig({ logger, jobs: { digest: { schedule: "0 8 * * *", handler: async () => { throw new Error("nope"); } } } }));
+    await expect(app.trigger("digest")).rejects.toThrow("nope");
+    expect(logger.error).toHaveBeenCalledWith("[cronvello] job 'digest' failed: nope", { error: "nope" });
+  });
+
   it("fires source='dispatch' on the HTTP sync path", async () => {
     const { events, hooks } = spyHooks();
     const app = defineCronvello(baseConfig({ hooks }));
