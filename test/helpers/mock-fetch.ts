@@ -54,6 +54,7 @@ function makeResponse(spec: MockResponseSpec) {
 export function mockFetch(script: MockResponseSpec[] | ((call: RecordedCall, index: number) => MockResponseSpec)): MockFetch {
   const calls: RecordedCall[] = [];
   const queue = Array.isArray(script) ? [...script] : null;
+  const scripted = Array.isArray(script) ? null : script;
 
   const fetch: FetchLike = async (url, init) => {
     const body = init?.body;
@@ -79,7 +80,7 @@ export function mockFetch(script: MockResponseSpec[] | ((call: RecordedCall, ind
       throw abortError();
     }
 
-    const spec = queue ? (queue.length > 1 ? queue.shift()! : queue[0] ?? { status: 200 }) : script(call, calls.length - 1);
+    const spec = queue ? (queue.length > 1 ? queue.shift()! : queue[0] ?? { status: 200 }) : scripted!(call, calls.length - 1);
     if (spec.throw !== undefined) throw spec.throw;
     return makeResponse(spec);
   };

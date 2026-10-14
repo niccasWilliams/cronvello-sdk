@@ -199,7 +199,7 @@ describe("local dashboard UI", () => {
 
   it("keeps every mark inside the window it claims to show", async () => {
     await boot();
-    for (const mark of Array.from(document.querySelectorAll<HTMLElement>(".mk"))) {
+    for (const mark of Array.from(document.querySelectorAll<HTMLElement>(".mk")) as HTMLElement[]) {
       const left = Number.parseFloat(mark.style.left);
       expect(left).toBeGreaterThanOrEqual(0);
       expect(left).toBeLessThanOrEqual(100);

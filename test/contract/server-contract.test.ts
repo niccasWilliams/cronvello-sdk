@@ -23,8 +23,8 @@ describe("contract — success envelope is unwrapped to inner data", () => {
     expect(me.limits.maxJobs).toBe(100);
     expect(me.summary.openDlqCount).toBe(0);
     // Regression guard: the raw envelope keys must NOT leak through.
-    expect((me as Record<string, unknown>)["success"]).toBeUndefined();
-    expect((me as Record<string, unknown>)["data"]).toBeUndefined();
+    expect((me as unknown as Record<string, unknown>)["success"]).toBeUndefined();
+    expect((me as unknown as Record<string, unknown>)["data"]).toBeUndefined();
   });
 
   it("GET /v1/usage returns inner usage counters", async () => {

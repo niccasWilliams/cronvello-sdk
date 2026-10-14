@@ -1,0 +1,9 @@
+{
+  // Typecheck fuer Quellen UND Tests. tsconfig.json bleibt die Build-Konfiguration (rootDir src),
+  // diese hier emittiert nichts und aendert den Build-Output nicht. In Tests ist ein Zugriff wie
+  // mock.calls[0] gewollt (fehlt er, ist der Test rot), deshalb ohne noUncheckedIndexedAccess.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "noUncheckedIndexedAccess": false, "rootDir": ".", "lib": ["ES2022", "DOM", "DOM.Iterable"] },
+  "include": ["src", "test"],
+  "exclude": ["dist", "node_modules"]
+}

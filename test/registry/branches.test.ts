@@ -95,7 +95,7 @@ describe("transport — retry-after from the response body", () => {
   it("reads data.retryAfterSeconds when no Retry-After header is present", async () => {
     const mf = mockFetch([{ status: 429, body: { success: false, message: "slow", data: { retryAfterSeconds: 3 } } }]);
     const t = new Transport({ baseUrl: "https://api.cronvello.com", apiKey: "k", fetch: mf.fetch, maxRetries: 0 });
-    const err = await t.request({ method: "GET", path: "/x" }).catch((e) => e);
+    const err = (await t.request({ method: "GET", path: "/x" }).catch((e: unknown) => e)) as { retryAfterSeconds?: number };
     expect(err.retryAfterSeconds).toBe(3);
   });
 });

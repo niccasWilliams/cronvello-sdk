@@ -166,7 +166,7 @@ describe("dispatch — callback delivery retries", () => {
     vi.useFakeTimers();
     let calls = 0;
     vi.stubGlobal("fetch", async () => {
-      const next = responses[Math.min(calls++, responses.length - 1)];
+      const next = responses[Math.min(calls++, responses.length - 1)]!;
       if (next === "network") throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } });
       return { ok: next >= 200 && next < 300, status: next };
     });
