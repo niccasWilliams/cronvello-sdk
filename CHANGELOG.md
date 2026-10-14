@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.2 - 2026-10-14
+
+- Caught callback retries are no longer silent. Each failed attempt is logged as a warning
+  through the app's logger with attempt n of m, target, reason and the wait before the next try
+  (`attempt 1 of 4 failed (fetch failed (ECONNRESET)) to https://…/cb, retrying in 1000ms`).
+  A delivery that succeeds after a retry logs one info line. Only the final failure is an
+  error, and it now says how many attempts were made and that the run will time out. The
+  target is logged as origin and path only; query, fragment and userinfo never reach the log.
+
 ## 0.12.1 - 2026-10-13
 
 - The async callback is retried on network errors, 5xx and 429 (4 attempts within about 15 s)

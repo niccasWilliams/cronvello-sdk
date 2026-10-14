@@ -227,6 +227,10 @@ async function runAndReportCallback(
 
   // A short network blip must not cost a run that already succeeded: Cronvello would mark it
   // timed out after the confirmation window. Retrying is safe, the server deduplicates on runId.
+  // Every caught blip is logged as a warning, so a slow decline shows up before the real outage;
+  // only the final failure is an error. The target is logged without query or credentials.
+  const maxAttempts = CALLBACK_RETRY_DELAYS_MS.length + 1;
+  const target = describeTarget(callback.url);
   for (let attempt = 0; ; attempt++) {
     let failure: { error?: string; status?: number };
     try {
@@ -235,7 +239,14 @@ async function runAndReportCallback(
         headers: { "content-type": "application/json", [header]: signature },
         body: bodyStr,
       });
-      if (res.ok) return;
+      if (res.ok) {
+        if (attempt > 0) {
+          log.info?.(`[cronvello] callback for job '${job.key}' delivered on attempt ${attempt + 1} of ${maxAttempts}`, {
+            job: job.key, runId: callback.runId, target, attempt: attempt + 1, maxAttempts,
+          });
+        }
+        return;
+      }
       if (res.status !== 429 && res.status < 500) {
         log.warn?.(`[cronvello] callback POST for job '${job.key}' returned ${res.status}`);
         return;
@@ -244,11 +255,30 @@ async function runAndReportCallback(
     } catch (err) {
       failure = { error: describeError(err) };
     }
+    const reason = failure.status !== undefined ? `HTTP ${failure.status}` : failure.error!;
     if (attempt >= CALLBACK_RETRY_DELAYS_MS.length) {
-      log.error?.(`[cronvello] failed to deliver callback for job '${job.key}'`, { ...failure, attempts: attempt + 1 });
+      log.error?.(
+        `[cronvello] failed to deliver callback for job '${job.key}' after ${maxAttempts} attempts (${reason}) to ${target}; the run will be marked timed out`,
+        { ...failure, job: job.key, runId: callback.runId, target, attempts: attempt + 1 },
+      );
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, CALLBACK_RETRY_DELAYS_MS[attempt]));
+    const delayMs = CALLBACK_RETRY_DELAYS_MS[attempt]!;
+    log.warn?.(
+      `[cronvello] callback for job '${job.key}' attempt ${attempt + 1} of ${maxAttempts} failed (${reason}) to ${target}, retrying in ${delayMs}ms`,
+      { ...failure, job: job.key, runId: callback.runId, target, attempt: attempt + 1, maxAttempts, delayMs },
+    );
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+}
+
+/** Origin and path of the callback URL: query, fragment and userinfo may carry credentials. */
+function describeTarget(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return "(invalid callback url)";
   }
 }
 

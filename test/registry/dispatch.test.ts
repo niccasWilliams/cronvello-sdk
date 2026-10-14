@@ -162,7 +162,7 @@ describe("dispatch — async_callback", () => {
 describe("dispatch — callback delivery retries", () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
-  async function deliver(responses: Array<"network" | number>) {
+  async function deliver(responses: Array<"network" | number>, url = "https://x/cb") {
     vi.useFakeTimers();
     let calls = 0;
     vi.stubGlobal("fetch", async () => {
@@ -172,19 +172,24 @@ describe("dispatch — callback delivery retries", () => {
     });
     const errors: unknown[][] = [];
     const warns: unknown[][] = [];
+    const infos: unknown[][] = [];
     const d = dispatcher(
       { digest: { schedule: "* * * * *", handler: async () => "ok" } },
-      { error: (...a: unknown[]) => { errors.push(a); }, warn: (...a: unknown[]) => { warns.push(a); } },
+      {
+        error: (...a: unknown[]) => { errors.push(a); },
+        warn: (...a: unknown[]) => { warns.push(a); },
+        info: (...a: unknown[]) => { infos.push(a); },
+      },
     );
     let work: Promise<unknown> | undefined;
     await d.handle(req({
-      rawBody: JSON.stringify({ job: "digest", _callback: { url: "https://x/cb", runId: "run_r" } }),
+      rawBody: JSON.stringify({ job: "digest", _callback: { url, runId: "run_r" } }),
       waitUntil: (p) => { work = p; },
     }));
     let done = false;
     void work!.then(() => { done = true; });
     while (!done) await vi.advanceTimersByTimeAsync(1_000);
-    return { calls, errors, warns };
+    return { calls, errors, warns, infos };
   }
 
   it("retries a network failure and stays quiet once delivered", async () => {
@@ -209,5 +214,43 @@ describe("dispatch — callback delivery retries", () => {
     expect(r.calls).toBe(4);
     expect(r.errors).toHaveLength(1);
     expect(r.errors[0]![1]).toMatchObject({ error: "fetch failed (ECONNRESET)", attempts: 4 });
+    expect(String(r.errors[0]![0])).toContain("after 4 attempts");
+  });
+
+  it("logs every caught attempt as a warning with attempt, reason, target and wait", async () => {
+    const r = await deliver(["network", 503, 200]);
+    expect(r.errors).toEqual([]);
+    expect(r.warns).toHaveLength(2);
+    expect(String(r.warns[0]![0])).toBe(
+      "[cronvello] callback for job 'digest' attempt 1 of 4 failed (fetch failed (ECONNRESET)) to https://x/cb, retrying in 1000ms",
+    );
+    expect(r.warns[0]![1]).toMatchObject({ job: "digest", runId: "run_r", target: "https://x/cb", attempt: 1, maxAttempts: 4, delayMs: 1_000 });
+    expect(r.warns[1]![1]).toMatchObject({ status: 503, attempt: 2, delayMs: 4_000 });
+    expect(String(r.warns[1]![0])).toContain("(HTTP 503)");
+    // Recovery is visible too, so a caught blip can be told apart from a lost run.
+    expect(r.infos).toHaveLength(1);
+    expect(r.infos[0]![1]).toMatchObject({ attempt: 3, maxAttempts: 4 });
+  });
+
+  it("warns on each retry before the final error", async () => {
+    const r = await deliver([500]);
+    expect(r.warns.map((w) => (w[1] as { delayMs: number }).delayMs)).toEqual([1_000, 4_000, 10_000]);
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0]![1]).toMatchObject({ status: 500, attempts: 4 });
+  });
+
+  it("stays silent on a first-try delivery", async () => {
+    const r = await deliver([200]);
+    expect(r.warns).toEqual([]);
+    expect(r.infos).toEqual([]);
+  });
+
+  it("never logs credentials or query parameters of the callback url", async () => {
+    const r = await deliver(["network"], "https://user:pw@cb.example.com/runs/cb?token=s3cr3t#frag");
+    const out = JSON.stringify([...r.warns, ...r.errors]);
+    expect(out).not.toContain("s3cr3t");
+    expect(out).not.toContain("pw@");
+    expect(out).not.toContain(SECRET);
+    expect(out).toContain("https://cb.example.com/runs/cb");
   });
 });
