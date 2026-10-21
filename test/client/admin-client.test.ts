@@ -220,3 +220,40 @@ describe("CronvelloAdminClient — input guards", () => {
     expect(mf.calls).toHaveLength(0);
   });
 });
+
+describe("CronvelloAdminClient — API-key lifecycle routes", () => {
+  it("maps rollback, revoke, list, reconcile, issue and bind to the right verb+path and body", async () => {
+    const { c, mf } = admin();
+    await c.externalApps.rollbackKey("node-shop");
+    await c.externalApps.revokeKey("node-shop", { reason: "leaked" });
+    await c.externalApps.revokeKey("node-shop");
+    await c.externalApps.listApiKeys(42);
+    await c.externalApps.reconcileApiKeyAnchors();
+    await c.externalApps.reconcileApiKeyAnchors({ apply: true });
+    await c.externalApps.issueApiKey(42, { keyName: "ci" });
+    await c.externalApps.bindApiKey(42, { apiKeyId: 7 });
+    expect(mf.calls.map((call) => `${pathOf(call)}${new URL(call.url).search}`)).toEqual([
+      "POST /external-apps/service/rollback-key/node-shop",
+      "POST /external-apps/service/revoke-key/node-shop",
+      "POST /external-apps/service/revoke-key/node-shop",
+      "GET /external-apps/service/api-keys/42",
+      "POST /external-apps/service/api-keys/reconcile",
+      "POST /external-apps/service/api-keys/reconcile?apply=true",
+      "POST /external-apps/service/api-keys/42/issue",
+      "POST /external-apps/service/api-keys/42/bind",
+    ]);
+    expect(mf.calls[1]!.json).toEqual({ reason: "leaked" });
+    expect(mf.calls[6]!.json).toEqual({ keyName: "ci" });
+    expect(mf.calls[7]!.json).toEqual({ apiKeyId: 7 });
+  });
+
+  it("rejects a blank appId and a non-numeric registration id before any network call", () => {
+    const { c, mf } = admin();
+    expect(() => c.externalApps.rollbackKey("")).toThrow(CronvelloConfigError);
+    expect(() => c.externalApps.revokeKey(" ")).toThrow(CronvelloConfigError);
+    expect(() => c.externalApps.listApiKeys(0)).toThrow(CronvelloConfigError);
+    expect(() => c.externalApps.issueApiKey(1.5, { keyName: "ci" })).toThrow(CronvelloConfigError);
+    expect(() => c.externalApps.bindApiKey(0, { apiKeyId: 7 })).toThrow(CronvelloConfigError);
+    expect(mf.calls).toHaveLength(0);
+  });
+});
