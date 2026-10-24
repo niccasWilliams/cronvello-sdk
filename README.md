@@ -388,6 +388,20 @@ previewSchedule("*/15 * * * *", { count: 4 });               // → the next fou
 
 ---
 
+## Host admission and drain
+
+Hosts may set `acquireRun(info)` to refuse new executions during a drain and count
+accepted work. It runs synchronously after dispatch authentication/validation and
+before any lifecycle hook or handler. Return a lease with `release()`; the SDK calls
+it once after the complete run. For async dispatch this includes callback signing,
+delivery and retries, even though the HTTP response already returned 202. Local
+triggers and synchronous dispatch also remain admitted through their hooks.
+
+Throwing refuses the run before any job work: HTTP dispatch responds 503, while a
+local trigger rejects. This is host policy, so its error text is not returned to the
+caller. A drain controller must still manage its own durable ownership, application
+workers and restart protocol; an SDK lease alone does not certify a complete drain.
+
 ## Lifecycle hooks & logging
 
 Observe every run — for structured logs, metrics, or error reporting (Sentry, etc.). Hooks never

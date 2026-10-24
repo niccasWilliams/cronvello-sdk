@@ -22,6 +22,8 @@ export type {
   CronvelloJobHandler,
   CronvelloLogger,
   CronvelloHooks,
+  CronvelloRunInfo,
+  CronvelloRunLease,
   CronvelloRunSource,
   ReconcileResult,
   ReconcileTaskChange,

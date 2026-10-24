@@ -146,6 +146,7 @@ export function defineCronvello(config: CronvelloAppConfig): CronvelloApp {
     dispatchSecret: config.dispatchSecret,
     logger: config.logger,
     ...(config.hooks ? { hooks: config.hooks } : {}),
+    ...(config.acquireRun ? { acquireRun: config.acquireRun } : {}),
     ...(config.maxBodyBytes !== undefined ? { maxBodyBytes: config.maxBodyBytes } : {}),
   });
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.4 - 2026-10-24
+
+- Add optional synchronous host admission for complete job lifecycles, including async callback delivery and retries. Refused dispatches return 503 before hooks or handlers; accepted work releases exactly once after completion.
+
+
 ## 0.12.3 - 2026-10-15
 
 - A failing job is reported once. With an `onJobError` hook the app owns the failure report,

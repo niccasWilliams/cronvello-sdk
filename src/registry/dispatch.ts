@@ -10,7 +10,7 @@
  * objects to/from the neutral shapes below.
  */
 
-import type { CronvelloHooks, CronvelloJobConfig, CronvelloJobContext, CronvelloLogger, CronvelloRunSource } from "./types.js";
+import type { CronvelloHooks, CronvelloJobConfig, CronvelloJobContext, CronvelloLogger, CronvelloRunSource, CronvelloRunInfo, CronvelloRunLease } from "./types.js";
 import { parseBearer, signHmacSha256, timingSafeEqual } from "./verify.js";
 
 export interface ResolvedJob {
@@ -30,6 +30,7 @@ export interface DispatcherState {
   dispatchSecret: string | undefined;
   logger: CronvelloLogger | undefined;
   hooks?: CronvelloHooks | undefined;
+  acquireRun?: ((info: CronvelloRunInfo) => CronvelloRunLease) | undefined;
   /** Reject inbound bodies larger than this many bytes (default 1 MiB). */
   maxBodyBytes?: number;
 }
@@ -102,6 +103,18 @@ export function createDispatcher(state: DispatcherState): Dispatcher {
     }
   }
 
+  function acquireRun(info: CronvelloRunInfo): () => void {
+    const lease = state.acquireRun?.(info);
+    if (state.acquireRun && (!lease || typeof lease.release !== "function")) throw new Error("Invalid run admission lease");
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      try { lease?.release(); }
+      catch (error) { log.error?.("[cronvello] run admission release failed", { error: describeError(error), job: info.key }); }
+    };
+  }
+
   function buildContext(key: string, job: ResolvedJob, req: DispatchRequest | null, body: Record<string, unknown>, isAsync: boolean, source: CronvelloRunSource, signal?: AbortSignal): CronvelloJobContext {
     return {
       key,
@@ -168,9 +181,18 @@ export function createDispatcher(state: DispatcherState): Dispatcher {
     const isAsync = callback !== null;
     const ctx = buildContext(key, job, req, body, isAsync, "dispatch");
 
+    let release: () => void;
+    try { release = acquireRun({ key, source: "dispatch", isAsync }); }
+    catch {
+      // Host policy is authoritative and may contain private context; do not reflect its error.
+      return resp(503, { ok: false, job: key, error: "Job admission refused by host" });
+    }
+
     // 5a. Async path — acknowledge now, run in the background, post the result back.
     if (callback) {
-      const work = runAndReportCallback(job, ctx, callback, secret, log, invokeHandler);
+      const work = runAndReportCallback(job, ctx, callback, secret, log, invokeHandler)
+        .catch(error => { log.error?.("[cronvello] async run failed before callback completion", { error: describeError(error), job: key }); })
+        .finally(release);
       if (req.waitUntil) req.waitUntil(work);
       else void work; // fire-and-forget on long-running hosts
       return resp(202, { ok: true, job: key, accepted: true });
@@ -183,7 +205,7 @@ export function createDispatcher(state: DispatcherState): Dispatcher {
     } catch (err) {
       // Non-2xx → Cronvello records a failure and retries per the task's maxRetries.
       return resp(500, { ok: false, job: key, error: err instanceof Error ? err.message : String(err) });
-    }
+    } finally { release(); }
   }
 
   async function runLocal(key: string, payload?: Record<string, unknown>, opts?: { signal?: AbortSignal }): Promise<unknown> {
@@ -191,8 +213,11 @@ export function createDispatcher(state: DispatcherState): Dispatcher {
     if (!job) throw new Error(`Unknown job '${key}'. Known: ${[...state.jobs.keys()].join(", ") || "(none)"}`);
     const body: Record<string, unknown> = { job: key, schedule: job.config.schedule, ...(payload ?? {}) };
     const ctx = buildContext(key, job, null, body, false, "local", opts?.signal);
-    const { result } = await invokeHandler(job, ctx);
-    return result;
+    const release = acquireRun({ key, source: "local", isAsync: false });
+    try {
+      const { result } = await invokeHandler(job, ctx);
+      return result;
+    } finally { release(); }
   }
 
   return { handle, runLocal };

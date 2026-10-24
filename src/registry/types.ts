@@ -30,6 +30,17 @@ export interface CronvelloJobContext<Payload = Record<string, unknown>> {
   signal: AbortSignal | undefined;
 }
 
+/** The execution selected after dispatch authentication and validation. */
+export interface CronvelloRunInfo {
+  key: string;
+  source: CronvelloRunSource;
+  isAsync: boolean;
+}
+/** Host admission remains held through hooks and async callback delivery/retries. */
+export interface CronvelloRunLease {
+  release(): void;
+}
+
 /** Lifecycle hooks fired around every job run — for logging, metrics, error reporting (Sentry, …). */
 export interface CronvelloHooks {
   /** Before the handler runs. */
@@ -142,6 +153,13 @@ export interface CronvelloAppConfig {
   logger?: CronvelloLogger;
   /** Lifecycle hooks fired around every run (logging/metrics/error reporting). */
   hooks?: CronvelloHooks;
+  /**
+   * Synchronous host admission before any run hooks or handler. Throw to refuse new work.
+   * Dispatch returns 503 (including async runs); local trigger propagates the rejection.
+   * The returned lease is released exactly once after hooks and, for async dispatch,
+   * callback delivery/retries have settled. An HTTP 202 is not completion.
+   */
+  acquireRun?: (info: CronvelloRunInfo) => CronvelloRunLease;
   /** Reject inbound dispatch bodies larger than this many bytes (default 1 MiB). */
   maxBodyBytes?: number;
   /**
