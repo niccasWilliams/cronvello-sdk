@@ -231,6 +231,8 @@ async function runAndReportCallback(
   log: CronvelloLogger,
   invokeHandler: (job: ResolvedJob, ctx: CronvelloJobContext) => Promise<{ durationMs: number; result: unknown }>,
 ): Promise<void> {
+  // Cronvello's confirmation window starts at dispatch, so the handler's runtime is part of it.
+  const windowStartedAt = Date.now();
   let payload: Record<string, unknown>;
   try {
     const { durationMs, result } = await invokeHandler(job, ctx);
@@ -254,11 +256,18 @@ async function runAndReportCallback(
     return;
   }
 
-  // A short network blip must not cost a run that already succeeded: Cronvello would mark it
-  // timed out after the confirmation window. Retrying is safe, the server deduplicates on runId.
+  // A network outage must not cost a run that already succeeded: Cronvello would mark it timed
+  // out after the confirmation window. Retrying is safe, the server deduplicates on runId. With
+  // `timeoutMs` the retries use that window up to a safety margin, so no attempt starts after the
+  // server has stopped waiting; without it the short fixed schedule applies.
   // Every caught blip is logged as a warning, so a slow decline shows up before the real outage;
   // only the final failure is an error. The target is logged without query or credentials.
-  const maxAttempts = CALLBACK_RETRY_DELAYS_MS.length + 1;
+  const deadline = callback.timeoutMs !== undefined
+    ? windowStartedAt + callback.timeoutMs - CALLBACK_WINDOW_SAFETY_MS
+    : undefined;
+  const maxAttempts = deadline === undefined
+    ? CALLBACK_RETRY_DELAYS_MS.length + 1
+    : plannedWindowAttempts(deadline - Date.now());
   const target = describeTarget(callback.url);
   for (let attempt = 0; ; attempt++) {
     let failure: { error?: string; status?: number };
@@ -267,6 +276,7 @@ async function runAndReportCallback(
         method: "POST",
         headers: { "content-type": "application/json", [header]: signature },
         body: bodyStr,
+        ...attemptSignal(),
       });
       if (res.ok) {
         if (attempt > 0) {
@@ -285,20 +295,49 @@ async function runAndReportCallback(
       failure = { error: describeError(err) };
     }
     const reason = failure.status !== undefined ? `HTTP ${failure.status}` : failure.error!;
-    if (attempt >= CALLBACK_RETRY_DELAYS_MS.length) {
+    const delayMs = nextCallbackDelay(attempt, deadline);
+    if (delayMs === null) {
       log.error?.(
-        `[cronvello] failed to deliver callback for job '${job.key}' after ${maxAttempts} attempts (${reason}) to ${target}; the run will be marked timed out`,
+        `[cronvello] failed to deliver callback for job '${job.key}' after ${attempt + 1} attempts (${reason}) to ${target}; the run will be marked timed out`,
         { ...failure, job: job.key, runId: callback.runId, target, attempts: attempt + 1 },
       );
       return;
     }
-    const delayMs = CALLBACK_RETRY_DELAYS_MS[attempt]!;
     log.warn?.(
       `[cronvello] callback for job '${job.key}' attempt ${attempt + 1} of ${maxAttempts} failed (${reason}) to ${target}, retrying in ${delayMs}ms`,
       { ...failure, job: job.key, runId: callback.runId, target, attempt: attempt + 1, maxAttempts, delayMs },
     );
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
+}
+
+/**
+ * Wait before the attempt after `attempt`, or null when no further attempt may start. In window
+ * mode the wait is cut so the last attempt starts at the deadline at the latest, never after it.
+ */
+function nextCallbackDelay(attempt: number, deadline: number | undefined): number | null {
+  if (deadline === undefined) return CALLBACK_RETRY_DELAYS_MS[attempt] ?? null;
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return null;
+  return Math.min(windowDelay(attempt), remaining);
+}
+
+function windowDelay(attempt: number): number {
+  return CALLBACK_WINDOW_DELAYS_MS[Math.min(attempt, CALLBACK_WINDOW_DELAYS_MS.length - 1)]!;
+}
+
+/** Attempts that fit into `budgetMs` if every attempt failed instantly; the `of m` in the logs. */
+function plannedWindowAttempts(budgetMs: number): number {
+  let attempts = 1;
+  for (let elapsed = 0; elapsed < budgetMs; attempts++) elapsed += windowDelay(attempts - 1);
+  return attempts;
+}
+
+/** A hanging connect must not eat the window: each attempt gets its own time limit. */
+function attemptSignal(): { signal?: AbortSignal } {
+  return typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+    ? { signal: AbortSignal.timeout(CALLBACK_ATTEMPT_TIMEOUT_MS) }
+    : {};
 }
 
 /** Origin and path of the callback URL: query, fragment and userinfo may carry credentials. */
@@ -311,8 +350,14 @@ function describeTarget(url: string): string {
   }
 }
 
-/** Waits between callback attempts: 4 tries within ~15 s, well inside Cronvello's confirmation window. */
+/** Waits between callback attempts without a known window: 4 tries within ~15 s. */
 const CALLBACK_RETRY_DELAYS_MS = [1_000, 4_000, 10_000];
+/** Waits between callback attempts inside a known window; the last value repeats. */
+const CALLBACK_WINDOW_DELAYS_MS = [1_000, 4_000, 10_000, 30_000, 60_000];
+/** Time limit of a single callback POST. */
+const CALLBACK_ATTEMPT_TIMEOUT_MS = 15_000;
+/** No attempt starts later than this before the window ends, so a full attempt still fits. */
+const CALLBACK_WINDOW_SAFETY_MS = CALLBACK_ATTEMPT_TIMEOUT_MS;
 
 /** `fetch failed` alone hides the reason; undici puts the network code on `cause`. */
 function describeError(err: unknown): string {

@@ -254,3 +254,101 @@ describe("dispatch — callback delivery retries", () => {
     expect(out).toContain("https://cb.example.com/runs/cb");
   });
 });
+
+describe("dispatch — callback delivery inside the confirmation window", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+  /** `reachableAfterMs`: the target fails with ETIMEDOUT until that much time has passed. */
+  async function deliverInWindow(opts: { timeoutMs?: number; reachableAfterMs: number; handlerMs?: number }) {
+    vi.useFakeTimers();
+    // The window opens when the handler starts. Signing uses real WebCrypto, so the fake clock moves
+    // on while it resolves: times are measured from the handler start, spacing is exact.
+    let startedAt = Number.NaN;
+    const attemptsAt: number[] = [];
+    const signals: unknown[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: { signal?: unknown }) => {
+      const at = Date.now() - startedAt;
+      attemptsAt.push(at);
+      signals.push(init.signal);
+      if (at < opts.reachableAfterMs) {
+        throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ETIMEDOUT" } });
+      }
+      return { ok: true, status: 200 };
+    });
+    const errors: unknown[][] = [];
+    const warns: unknown[][] = [];
+    const infos: unknown[][] = [];
+    const d = dispatcher(
+      {
+        digest: {
+          schedule: "* * * * *",
+          handler: async () => {
+            startedAt = Date.now();
+            if (opts.handlerMs) await new Promise((r) => setTimeout(r, opts.handlerMs));
+            return "ok";
+          },
+        },
+      },
+      {
+        error: (...a: unknown[]) => { errors.push(a); },
+        warn: (...a: unknown[]) => { warns.push(a); },
+        info: (...a: unknown[]) => { infos.push(a); },
+      },
+    );
+    const callback = { url: "https://x/cb", runId: "run_w", ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}) };
+    let work: Promise<unknown> | undefined;
+    await d.handle(req({ rawBody: JSON.stringify({ job: "digest", _callback: callback }), waitUntil: (p) => { work = p; } }));
+    let done = false;
+    void work!.then(() => { done = true; });
+    while (!done) await vi.advanceTimersByTimeAsync(1_000);
+    return { attemptsAt, signals, errors, warns, infos };
+  }
+
+  const gaps = (at: number[]) => at.slice(1).map((t, i) => t - at[i]!);
+
+  it("delivers a callback whose target is unreachable for 120 s when the window is 300 s", async () => {
+    const r = await deliverInWindow({ timeoutMs: 300_000, reachableAfterMs: 120_000 });
+    expect(r.errors).toEqual([]);
+    const delivered = r.attemptsAt.at(-1)!;
+    expect(delivered).toBeGreaterThanOrEqual(120_000);
+    expect(delivered).toBeLessThanOrEqual(285_000);
+    expect(r.attemptsAt.slice(0, -1).every((t) => t < 120_000)).toBe(true);
+    expect(gaps(r.attemptsAt)).toEqual([1_000, 4_000, 10_000, 30_000, 60_000, 60_000].slice(0, r.attemptsAt.length - 1));
+    expect(r.infos).toHaveLength(1);
+    expect(r.infos[0]![1]).toMatchObject({ runId: "run_w", attempt: r.attemptsAt.length });
+  });
+
+  it("starts no attempt after the window end minus the safety margin and reports the real count", async () => {
+    const r = await deliverInWindow({ timeoutMs: 300_000, reachableAfterMs: Infinity });
+    const last = 300_000 - 15_000;
+    // The last wait is cut so the final attempt lands on the deadline, never after it.
+    expect(r.attemptsAt.at(-1)).toBe(last);
+    expect(r.attemptsAt.every((t) => t <= last)).toBe(true);
+    expect(gaps(r.attemptsAt).slice(0, 5)).toEqual([1_000, 4_000, 10_000, 30_000, 60_000]);
+    const attempts = r.attemptsAt.length;
+    expect(attempts).toBeGreaterThan(4);
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0]![1]).toMatchObject({ error: "fetch failed (ETIMEDOUT)", attempts });
+    expect(String(r.errors[0]![0])).toContain(`after ${attempts} attempts`);
+    expect(String(r.errors[0]![0])).toContain("the run will be marked timed out");
+    expect(r.warns).toHaveLength(attempts - 1);
+  });
+
+  it("counts the handler's runtime against the window", async () => {
+    const r = await deliverInWindow({ timeoutMs: 300_000, reachableAfterMs: Infinity, handlerMs: 200_000 });
+    expect(r.attemptsAt[0]).toBeGreaterThanOrEqual(200_000);
+    expect(r.attemptsAt.at(-1)).toBe(285_000);
+  });
+
+  it("keeps the short fixed schedule without timeoutMs", async () => {
+    const r = await deliverInWindow({ reachableAfterMs: Infinity });
+    expect(gaps(r.attemptsAt)).toEqual([1_000, 4_000, 10_000]);
+    expect(r.errors[0]![1]).toMatchObject({ attempts: 4 });
+  });
+
+  it("gives every attempt its own time limit so a hanging connect cannot eat the window", async () => {
+    const r = await deliverInWindow({ timeoutMs: 300_000, reachableAfterMs: Infinity });
+    expect(r.signals.length).toBeGreaterThan(1);
+    expect(r.signals.every((s) => s instanceof AbortSignal)).toBe(true);
+  });
+});

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.5 - 2026-11-08
+
+- The async callback uses Cronvello's confirmation window (`_callback.timeoutMs`) instead of
+  giving up after about 15 s. Retries wait 1, 4, 10, 30 and 60 s, then every 60 s, until 15 s
+  before the window ends; no attempt starts after that. The window counts from dispatch, so a
+  long handler leaves less room. Each POST is limited to 15 s, so a hanging connect cannot eat
+  the window. Without `timeoutMs` the old 4 attempts within about 15 s apply. The final error
+  names the real number of attempts.
+
 ## 0.12.4 - 2026-10-24
 
 - Add optional synchronous host admission for complete job lifecycles, including async callback delivery and retries. Refused dispatches return 503 before hooks or handlers; accepted work releases exactly once after completion.
