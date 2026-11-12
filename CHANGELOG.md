@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- A callback attempt cut off without a response (time limit, reset) can still have been booked.
+  When the retry then gets HTTP 409, the run counts as delivered and the SDK logs one info line
+  naming the cut-off attempt instead of a warning. A 409 on the first attempt or after a 5xx
+  stays a warning.
+
 ## 0.12.5 - 2026-11-08
 
 - The async callback uses Cronvello's confirmation window (`_callback.timeoutMs`) instead of
