@@ -269,6 +269,9 @@ async function runAndReportCallback(
     ? CALLBACK_RETRY_DELAYS_MS.length + 1
     : plannedWindowAttempts(deadline - Date.now());
   const target = describeTarget(callback.url);
+  // An attempt that ended without a response (time limit, reset) may still have been booked:
+  // Cronvello then answers the retry with 409 because the run is already confirmed.
+  let unanswered: { attempt: number; error: string } | undefined;
   for (let attempt = 0; ; attempt++) {
     let failure: { error?: string; status?: number };
     try {
@@ -286,6 +289,13 @@ async function runAndReportCallback(
         }
         return;
       }
+      if (res.status === 409 && unanswered) {
+        log.info?.(
+          `[cronvello] callback for job '${job.key}' delivered: attempt ${unanswered.attempt} of ${maxAttempts} reached ${target} before it was cut off (${unanswered.error}), attempt ${attempt + 1} got HTTP 409`,
+          { job: job.key, runId: callback.runId, target, attempt: attempt + 1, maxAttempts, status: 409, unansweredAttempt: unanswered.attempt },
+        );
+        return;
+      }
       if (res.status !== 429 && res.status < 500) {
         log.warn?.(`[cronvello] callback POST for job '${job.key}' returned ${res.status}`);
         return;
@@ -293,6 +303,7 @@ async function runAndReportCallback(
       failure = { status: res.status };
     } catch (err) {
       failure = { error: describeError(err) };
+      unanswered = { attempt: attempt + 1, error: failure.error! };
     }
     const reason = failure.status !== undefined ? `HTTP ${failure.status}` : failure.error!;
     const delayMs = nextCallbackDelay(attempt, deadline);

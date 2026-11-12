@@ -5,6 +5,20 @@ import type { CronvelloJobContext } from "../../src/registry/types.js";
 
 const SECRET = "dispatch-secret-0123456789abcdef";
 
+/** Captured before any test fakes the timers. */
+const realSetImmediate = setImmediate;
+
+/**
+ * Drive a background callback to its end on fake timers. The clock only moves while a fake timer
+ * is pending; real async work (WebCrypto signing) gets real turns, so it cannot eat fake time.
+ */
+async function settle(isDone: () => boolean): Promise<void> {
+  while (!isDone()) {
+    if (vi.getTimerCount() > 0) await vi.advanceTimersByTimeAsync(1_000);
+    else await new Promise((resolve) => realSetImmediate(resolve));
+  }
+}
+
 function dispatcher(jobs: Record<string, ResolvedJob["config"]>, logger?: Parameters<typeof createDispatcher>[0]["logger"]) {
   const map = new Map<string, ResolvedJob>(Object.entries(jobs).map(([key, config]) => [key, { key, config }]));
   return createDispatcher({ jobs: map, dispatchSecret: SECRET, logger });
@@ -188,7 +202,7 @@ describe("dispatch — callback delivery retries", () => {
     }));
     let done = false;
     void work!.then(() => { done = true; });
-    while (!done) await vi.advanceTimersByTimeAsync(1_000);
+    await settle(() => done);
     return { calls, errors, warns, infos };
   }
 
@@ -230,6 +244,27 @@ describe("dispatch — callback delivery retries", () => {
     // Recovery is visible too, so a caught blip can be told apart from a lost run.
     expect(r.infos).toHaveLength(1);
     expect(r.infos[0]![1]).toMatchObject({ attempt: 3, maxAttempts: 4 });
+  });
+
+  it("counts a 409 after an unanswered attempt as delivered, logged as info", async () => {
+    const r = await deliver(["network", 409]);
+    expect(r.calls).toBe(2);
+    expect(r.errors).toEqual([]);
+    // Only the cut-off attempt itself warns; the 409 confirms the booking.
+    expect(r.warns).toHaveLength(1);
+    expect(r.infos).toHaveLength(1);
+    expect(String(r.infos[0]![0])).toBe(
+      "[cronvello] callback for job 'digest' delivered: attempt 1 of 4 reached https://x/cb before it was cut off (fetch failed (ECONNRESET)), attempt 2 got HTTP 409",
+    );
+    expect(r.infos[0]![1]).toMatchObject({ runId: "run_r", attempt: 2, status: 409, unansweredAttempt: 1 });
+  });
+
+  it("keeps a 409 after a 5xx or on the first attempt a warning", async () => {
+    for (const responses of [[409], [503, 409]] as Array<Array<"network" | number>>) {
+      const r = await deliver(responses);
+      expect(r.infos).toEqual([]);
+      expect(String(r.warns.at(-1)![0])).toContain("returned 409");
+    }
   });
 
   it("warns on each retry before the final error", async () => {
@@ -300,7 +335,7 @@ describe("dispatch — callback delivery inside the confirmation window", () => 
     await d.handle(req({ rawBody: JSON.stringify({ job: "digest", _callback: callback }), waitUntil: (p) => { work = p; } }));
     let done = false;
     void work!.then(() => { done = true; });
-    while (!done) await vi.advanceTimersByTimeAsync(1_000);
+    await settle(() => done);
     return { attemptsAt, signals, errors, warns, infos };
   }
 
